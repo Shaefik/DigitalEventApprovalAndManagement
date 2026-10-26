@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Event Approval System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">PSG</div>
+    <div class="brand-copy">
+      <strong>Digital Event Approval</strong>
+      <span>College event permission portal · Prototype</span>
+    </div>
+    <button id="logoutBtn" class="button button-ghost hidden">Switch user</button>
+  </header>
+
+  <main class="page">
+    <section id="loginView" class="login-layout">
+      <div class="welcome-panel">
+        <p class="eyebrow">PSG COLLEGE OF TECHNOLOGY</p>
+        <h1>Event permission.<br><span>Made simpler.</span></h1>
+        <p>Submit an event request, follow each approval stage, and view the final permission letter in one place.</p>
+        <div class="workflow-preview">
+          <span>Student</span><i>→</i><span>Tutor</span><i>→</i><span>HOD</span><i>→</i><span>Dean</span><i>→</i><span>Principal</span>
+        </div>
+        <p class="small-note">Academic front-end prototype using HTML, CSS, JavaScript and browser localStorage.</p>
+      </div>
+      <form id="loginForm" class="panel login-card">
+        <p class="eyebrow">WELCOME</p>
+        <h2>Sign in to continue</h2>
+        <label for="roleSelect">Choose a demo role</label>
+        <select id="roleSelect" required>
+          <option value="Student">Student / Event Organizer</option>
+          <option value="Class Tutor">Class Tutor</option>
+          <option value="HOD">Head of Department (HOD)</option>
+          <option value="Dean">Dean</option>
+          <option value="Principal">Principal</option>
+        </select>
+        <label for="userName">Display name</label>
+        <input id="userName" type="text" placeholder="Enter your name" value="Demo User" required maxlength="60">
+        <button class="button button-primary full-width" type="submit">Open dashboard <span>→</span></button>
+        <p class="hint">Demo sign-in only. No password or real authentication is used.</p>
+      </form>
+    </section>
+
+    <section id="appView" class="hidden">
+      <div class="dashboard-heading">
+        <div>
+          <p class="eyebrow">WORKSPACE</p>
+          <h1 id="dashboardTitle">Dashboard</h1>
+          <p id="dashboardSubtitle" class="muted">Your applications and actions.</p>
+        </div>
+        <div class="role-chip"><span class="online-dot"></span><span id="currentUserLabel"></span></div>
+      </div>
+
+      <div id="statsGrid" class="stats-grid"></div>
+
+      <section id="studentCreatePanel" class="panel hidden">
+        <div class="section-heading">
+          <div><p class="eyebrow">NEW REQUEST</p><h2>Event permission form</h2></div>
+          <span class="subtle-tag">All fields required unless marked optional</span>
+        </div>
+        <form id="eventForm" class="form-grid">
+          <div class="field"><label for="eventName">Event name</label><input id="eventName" name="eventName" required maxlength="100" placeholder="e.g. Technology Symposium"></div>
+          <div class="field"><label for="organizer">Student organizer name</label><input id="organizer" name="organizer" required maxlength="80" placeholder="Full name"></div>
+          <div class="field"><label for="rollNo">Student roll number</label><input id="rollNo" name="rollNo" required maxlength="20" placeholder="e.g. 26MX317"></div>
+          <div class="field"><label for="department">Organizing department / club</label><input id="department" name="department" required maxlength="100" placeholder="Department or club"></div>
+          <div class="field"><label for="eventDate">Event date</label><input id="eventDate" name="eventDate" type="date" required></div>
+          <div class="field"><label for="eventTime">Event time</label><input id="eventTime" name="eventTime" type="time" required></div>
+          <div class="field"><label for="venue">Venue</label><input id="venue" name="venue" required maxlength="120" placeholder="Venue / auditorium"></div>
+          <div class="field"><label for="participants">Expected participants</label><input id="participants" name="participants" type="number" min="1" max="100000" required placeholder="e.g. 120"></div>
+          <div class="field full-span"><label for="purpose">Event description and purpose</label><textarea id="purpose" name="purpose" rows="3" required maxlength="1000" placeholder="Briefly describe the event and its purpose"></textarea></div>
+          <div class="form-actions full-span"><p class="hint">On submission, the request is sent to the Class Tutor for review.</p><button class="button button-primary" type="submit">Submit request <span>→</span></button></div>
+        </form>
+      </section>
+
+      <section id="returnedPanel" class="panel hidden">
+        <div class="section-heading"><div><p class="eyebrow">ACTION REQUIRED</p><h2>Returned for correction</h2></div></div>
+        <div id="returnedList" class="request-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow" id="listEyebrow">APPLICATIONS</p><h2 id="listTitle">Your applications</h2></div>
+          <div class="filter-wrap"><label for="statusFilter" class="sr-only">Filter applications</label><select id="statusFilter"><option value="All">All statuses</option><option>Pending</option><option>Returned</option><option>Rejected</option><option>Approved</option></select></div>
+        </div>
+        <div id="requestList" class="request-list"></div>
+        <div id="emptyState" class="empty-state hidden"><div class="empty-icon">⌁</div><strong>No applications to show</strong><p>Requests will appear here when available.</p></div>
+      </section>
+      <p class="prototype-warning"><strong>Prototype note:</strong> Data is stored in this browser only. This demo does not provide secure authentication, server-side storage, or real college access controls.</p>
+    </section>
+  </main>
+
+  <dialog id="reviewDialog" class="review-dialog">
+    <form method="dialog" class="dialog-top"><div><p class="eyebrow">REVIEW REQUEST</p><h2 id="reviewTitle">Review application</h2></div><button class="icon-button" aria-label="Close dialog">×</button></form>
+    <div id="reviewDetails" class="review-details"></div>
+    <form id="decisionForm">
+      <input type="hidden" id="decisionRequestId">
+      <label for="reviewComment">Comments (required for return or rejection)</label>
+      <textarea id="reviewComment" rows="3" maxlength="500" placeholder="Add a comment for the student"></textarea>
+      <div class="decision-actions">
+        <button type="button" id="rejectBtn" class="button button-danger">Reject</button>
+        <button type="button" id="returnBtn" class="button button-secondary">Return for correction</button>
+        <button type="button" id="approveBtn" class="button button-primary">Approve & forward</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="letterDialog" class="letter-dialog">
+    <div class="dialog-top no-print"><div><p class="eyebrow">FINAL DOCUMENT</p><h2>Permission letter</h2></div><button id="closeLetterBtn" class="icon-button" aria-label="Close letter">×</button></div>
+    <article id="letterContent" class="letter-paper"></article>
+    <div class="letter-actions no-print"><button id="printLetterBtn" class="button button-primary">Print / Save as PDF</button><button id="closeLetterBtn2" class="button button-secondary">Close</button></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="script.js"></script>
+</body>
+</html>
