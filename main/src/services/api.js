@@ -5,7 +5,9 @@ import axios from 'axios';
 
 export const http = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api' });
 http.interceptors.request.use((cfg) => {
-  const token = localStorage.getItem('cpems_token');
+  const token =
+  localStorage.getItem('cpems_token') ||
+  sessionStorage.getItem('cpems_token');
   if (token) cfg.headers.Authorization = `Bearer ${token}`;
   return cfg;
 });

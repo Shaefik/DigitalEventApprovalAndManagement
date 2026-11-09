@@ -1,3 +1,9 @@
+import {
+  authAPI,
+  requestAPI,
+  masterAPI,
+  notificationAPI
+} from '../services/api';
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { seedUsers, seedClubs, seedAssociations, seedEvents, seedDepartments, seedRooms, seedRequests, seedNotifications, seedSettings } from '../data/seed';
 import { decide, makeApprovals, flowOf, ROLE_LABELS, currentRole } from '../utils/workflow';
@@ -32,16 +38,60 @@ export function AppProvider({ children }) {
 
   // ---------- auth ----------
   const login = async ({ identifier, password, admin, remember }) => {
-    await wait(700);
+  try {
     const id = identifier.trim().toLowerCase();
-    const u = db.users.find((x) => (admin ? x.role === 'admin' && x.username.toLowerCase() === id : x.role !== 'admin' && x.email.toLowerCase() === id));
-    if (!u || u.password !== password) return { ok: false, error: admin ? 'Invalid admin username or password.' : 'Invalid email or password. Admins must use the Admin tab.' };
-    if (!u.active) return { ok: false, error: 'This account is deactivated. Contact the administrator.' };
-    (remember ? localStorage : sessionStorage).setItem(SESSION, u.id);
-    setSessionId(u.id);
-    return { ok: true, user: u };
-  };
-  const logout = () => { localStorage.removeItem(SESSION); sessionStorage.removeItem(SESSION); setSessionId(null); };
+
+    const response = admin
+      ? await authAPI.adminLogin({
+          username: id,
+          password
+        })
+      : await authAPI.login({
+          email: id,
+          password
+        });
+
+    const { token, user: loggedInUser } = response.data;
+
+    // Save token based on Remember Me
+    const storage = remember ? localStorage : sessionStorage;
+
+    storage.setItem('cpems_token', token);
+    storage.setItem(SESSION, loggedInUser.id);
+
+    // Make the authenticated user available to AppContext
+    setDb((d) => ({
+      ...d,
+      users: [
+        ...d.users.filter((u) => u.id !== loggedInUser.id),
+        loggedInUser
+      ]
+    }));
+
+    setSessionId(loggedInUser.id);
+
+    return {
+      ok: true,
+      user: loggedInUser
+    };
+
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.response?.data?.message ||
+             'Unable to connect to the server.'
+    };
+  }
+};
+  const logout = () => {
+  localStorage.removeItem(SESSION);
+  sessionStorage.removeItem(SESSION);
+
+  localStorage.removeItem('cpems_token');
+  sessionStorage.removeItem('cpems_token');
+
+  setSessionId(null);
+};
   const createAdmin = async ({ name, username, password }) => {
     await wait(500);
     if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return { ok: false, error: 'Username already exists.' };
