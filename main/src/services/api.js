@@ -16,6 +16,7 @@ export const authAPI = {
   login: (payload) => http.post('/auth/login', payload),
   adminLogin: (payload) => http.post('/auth/admin/login', payload),
   createAdmin: (payload) => http.post('/auth/admin', payload),
+  changePassword: (payload) => http.put('/auth/change-password', payload),
 };
 export const requestAPI = {
   list: (params) => http.get('/requests', { params }),

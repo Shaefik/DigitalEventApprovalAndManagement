@@ -4,31 +4,20 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 
+const { FLOWS, makeApprovals } = require('./workflow');
+const { buildSeed } = require('./seed/seedData');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// =========================================================
-// 1. WORKFLOW CONSTANTS (Matches your friend's workflow.js!)
-// =========================================================
-const FLOWS = {
-  od: ['faculty-advisor', 'tutor'],
-  association: ['faculty-advisor', 'hod', 'dean-su', 'dean-admin', 'principal'],
-  club: ['faculty-advisor', 'dean-su', 'dean-admin', 'principal'],
-};
-
-const makeApprovals = (flow) =>
-  flow.map((role, i) => ({
-    role,
-    status: i === 0 ? 'Pending' : 'Waiting',
-    by: null,
-    byName: null,
-    at: null,
-    remarks: '',
-  }));
+app.use((req, res, next) => {
+  console.log('REQ:', req.method, req.originalUrl);
+  next();
+});
 
 // =========================================================
-// 2. MONGODB SCHEMAS & MODELS (Matches seed.js 100%!)
+// 1. MONGODB SCHEMAS & MODELS
 // =========================================================
 
 const User = mongoose.model('User', new mongoose.Schema({
@@ -65,21 +54,21 @@ const Room = mongoose.model('Room', new mongoose.Schema({
 }));
 
 const Request = mongoose.model('Request', new mongoose.Schema({
-  id: { type: String, unique: true }, // e.g., "OD-1001" or "BK-2001"
-  type: String,                       // 'od' or 'booking'
-  kind: String,                       // 'club' or 'association' (for bookings)
+  id: { type: String, unique: true },
+  type: String,
+  kind: String,
   applicantId: String,
   createdAt: String,
-  status: { type: String, default: 'Pending' }, // 'Pending', 'Approved', 'Rejected'
+  status: { type: String, default: 'Pending' },
   approvals: [{
     role: String,
-    status: String,                   // 'Pending', 'Waiting', 'Approved', 'Rejected'
+    status: String,
     by: String,
     byName: String,
     at: String,
     remarks: String
   }],
-  data: mongoose.Schema.Types.Mixed   // Holds all form fields from ODForm or BookingForm
+  data: mongoose.Schema.Types.Mixed
 }));
 
 const Notification = mongoose.model('Notification', new mongoose.Schema({
@@ -91,7 +80,7 @@ const Notification = mongoose.model('Notification', new mongoose.Schema({
 }));
 
 // =========================================================
-// 3. AUTH MIDDLEWARE (Checks Bearer token from api.js)
+// 2. AUTH MIDDLEWARE
 // =========================================================
 const authMiddleware = (req, res, next) => {
   const header = req.headers.authorization;
@@ -105,10 +94,14 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
+// Use this on routes that must have a logged-in user
+const requireAuth = (req, res, next) =>
+  req.user ? next() : res.status(401).json({ message: 'Please log in again.' });
+
 app.use('/api', authMiddleware);
 
 // =========================================================
-// 4. AUTH ROUTES (Matches authAPI in api.js)
+// 3. AUTH ROUTES
 // =========================================================
 
 // Student / Staff Login (by email or username)
@@ -149,7 +142,9 @@ app.post('/api/auth/admin/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid admin credentials' });
     }
     const token = jwt.sign({ id: admin.id, role: admin.role, name: admin.name }, process.env.JWT_SECRET);
-    res.json({ token, user: admin });
+    const safeAdmin = admin.toObject();
+    delete safeAdmin.password;
+    res.json({ token, user: safeAdmin });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -175,14 +170,52 @@ app.post('/api/auth/admin', async (req, res) => {
       active: true
     });
     const token = jwt.sign({ id: newAdmin.id, role: newAdmin.role, name: newAdmin.name }, process.env.JWT_SECRET);
-    res.status(201).json({ token, user: newAdmin });
+    const safeAdmin = newAdmin.toObject();
+    delete safeAdmin.password;
+    res.status(201).json({ token, user: safeAdmin });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
+// Change password (current + new + confirm)
+app.put('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: 'All fields are required.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match.' });
+    }
+
+    const user = await User.findOne({ id: req.user.id });
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    // TEMPORARY DEBUG - remove after testing
+    console.log('TOKEN ID:', req.user.id, '| DB USER:', user.username, '| STORED:', JSON.stringify(user.password), '| TYPED:', JSON.stringify(currentPassword));
+
+    if (user.password !== currentPassword) {
+      return res.status(400).json({ message: 'Current password is incorrect.' });
+    }
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ message: 'New password must differ from the current one.' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Password changed successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 // =========================================================
-// 5. REQUEST ROUTES (Matches requestAPI in api.js)
+// 4. REQUEST ROUTES
 // =========================================================
 
 // GET /api/requests -> List all OD and Hall Booking requests
@@ -216,7 +249,6 @@ app.post('/api/requests', async (req, res) => {
       data: payload.data
     });
 
-    // Create notification for Faculty Advisor (first step)
     await Notification.create({
       id: `N-${Date.now()}`,
       role: 'faculty-advisor',
@@ -231,7 +263,7 @@ app.post('/api/requests', async (req, res) => {
   }
 });
 
-// POST /api/requests/:id/decision -> Approve or Reject (Matches workflow.js decide()!)
+// POST /api/requests/:id/decision -> Approve or Reject
 app.post('/api/requests/:id/decision', async (req, res) => {
   try {
     const { decision, remarks = '', user: bodyUser } = req.body;
@@ -243,7 +275,6 @@ app.post('/api/requests/:id/decision', async (req, res) => {
     const i = r.status === 'Pending' ? r.approvals.findIndex(a => a.status === 'Pending') : -1;
     if (i < 0) return res.json(r);
 
-    // Update current authority's step
     r.approvals[i].status = decision === 'approve' ? 'Approved' : 'Rejected';
     r.approvals[i].by = actor.id;
     r.approvals[i].byName = actor.name;
@@ -253,7 +284,6 @@ app.post('/api/requests/:id/decision', async (req, res) => {
     if (decision === 'reject') {
       r.status = 'Rejected';
     } else if (i + 1 < r.approvals.length) {
-      // Move 'Pending' to the next person in hierarchy!
       r.approvals[i + 1].status = 'Pending';
 
       await Notification.create({
@@ -264,7 +294,6 @@ app.post('/api/requests/:id/decision', async (req, res) => {
         read: false
       });
     } else {
-      // Everyone approved!
       r.status = 'Approved';
     }
 
@@ -276,8 +305,8 @@ app.post('/api/requests/:id/decision', async (req, res) => {
 });
 
 // =========================================================
-// 6. MASTER CRUD ROUTES (Matches masterAPI(resource) in api.js)
-//     Handles: /users, /clubs, /associations, /events, /departments, /rooms
+// 5. MASTER CRUD ROUTES
+//    Handles: /users, /clubs, /associations, /events, /departments, /rooms
 // =========================================================
 const resourceModels = {
   users: { model: User, prefix: 'U0' },
@@ -289,41 +318,75 @@ const resourceModels = {
 };
 
 Object.entries(resourceModels).forEach(([resource, { model, prefix }]) => {
-  // LIST
+  // LIST (never send passwords to the client)
   app.get(`/api/${resource}`, async (req, res) => {
-    const items = await model.find();
-    res.json(items);
+    try {
+      const query = resource === 'users' ? model.find().select('-password') : model.find();
+      res.json(await query);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // CREATE
   app.post(`/api/${resource}`, async (req, res) => {
-    const count = await model.countDocuments();
-    const newItem = await model.create({
-      id: req.body.id || `${prefix}-${count + 1 + Math.floor(Math.random() * 100)}`,
-      ...req.body
-    });
-    res.status(201).json(newItem);
+    try {
+      const count = await model.countDocuments();
+      const newItem = await model.create({
+        id: req.body.id || `${prefix}-${count + 1 + Math.floor(Math.random() * 100)}`,
+        ...req.body
+      });
+      const out = newItem.toObject();
+      if (resource === 'users') delete out.password;
+      res.status(201).json(out);
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
   });
 
   // UPDATE
   app.put(`/api/${resource}/:id`, async (req, res) => {
-    const updated = await model.findOneAndUpdate(
-      { id: req.params.id },
-      req.body,
-      { new: true }
-    );
-    res.json(updated);
+    try {
+      let body = { ...req.body };
+
+      if (resource === 'users') {
+        // Must be logged in; non-admins can only edit themselves, and never role/password/active
+        if (!req.user) return res.status(401).json({ message: 'Please log in again.' });
+        if (req.user.role !== 'admin') {
+          if (req.user.id !== req.params.id) {
+            return res.status(403).json({ message: 'Not allowed.' });
+          }
+          delete body.role;
+          delete body.password;
+          delete body.active;
+          delete body.id;
+        }
+      }
+
+      const updated = await model.findOneAndUpdate({ id: req.params.id }, body, { new: true });
+      if (!updated) return res.status(404).json({ message: 'Not found' });
+
+      const out = updated.toObject();
+      if (resource === 'users') delete out.password;
+      res.json(out);
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
   });
 
   // DELETE
   app.delete(`/api/${resource}/:id`, async (req, res) => {
-    await model.findOneAndDelete({ id: req.params.id });
-    res.json({ message: 'Deleted', id: req.params.id });
+    try {
+      await model.findOneAndDelete({ id: req.params.id });
+      res.json({ message: 'Deleted', id: req.params.id });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
   });
 });
 
 // =========================================================
-// 7. NOTIFICATION ROUTES (Matches notificationAPI in api.js)
+// 6. NOTIFICATION ROUTES
 // =========================================================
 app.get('/api/notifications', async (req, res) => {
   const list = await Notification.find().sort({ at: -1 });
@@ -337,198 +400,28 @@ app.post('/api/notifications/read', async (req, res) => {
 });
 
 // =========================================================
-// 8. AUTO-SEED INITIAL DATA (Matches your friend's seed.js!)
+// 7. AUTO-SEED INITIAL DATA (data lives in ./seed and ./workflow.js)
 // =========================================================
 async function seedDatabaseIfEmpty() {
-  const userCount = await User.countDocuments();
-  if (userCount > 0) return; // Already seeded!
+  if ((await User.countDocuments()) > 0) return;
 
   console.log('🌱 Database is empty! Auto-seeding with initial data...');
 
-  // 1️⃣ MODIFIED THE `mk` HELPER TO ACCEPT CUSTOM OVERRIDES CORRECTLY
-  const mk = (id, name, role, extra = {}) => ({
-    id, name, role, email: extra.email || `${role}@college.edu`, username: extra.username || role, regNo: '', department: 'CSE',
-    designation: '', password: extra.password || 'password123', active: true, ...extra,
-  });
-
-  const seedUsers = [
-    // 2️⃣ REPLACED STUDENT USERS HERE WITH 117 JSON RECORDS 
-    mk('U001', 'AGILESH NV', 'student', {regNo: '26MX101', designation: 'MCA – I Year', department: 'MCA', email: '26MX101@psgtech.ac.in', username: '26MX101@psgtech.ac.in', password: 'password@123'}),
-    mk('U002', 'ALOYSUS MARIA RAJ A', 'student', {regNo: '26MX102', designation: 'MCA – I Year', department: 'MCA', email: '26MX102@psgtech.ac.in', username: '26MX102@psgtech.ac.in', password: 'password@123'}),
-    mk('U003', 'AMRITHA VARSHINI S', 'student', {regNo: '26MX103', designation: 'MCA – I Year', department: 'MCA', email: '26MX103@psgtech.ac.in', username: '26MX103@psgtech.ac.in', password: 'password@123'}),
-    mk('U004', 'BHARATHI S', 'student', {regNo: '26MX104', designation: 'MCA – I Year', department: 'MCA', email: '26MX104@psgtech.ac.in', username: '26MX104@psgtech.ac.in', password: 'password@123'}),
-    mk('U005', 'DHARSHAN RANGANATHAN N R', 'student', {regNo: '26MX105', designation: 'MCA – I Year', department: 'MCA', email: '26MX105@psgtech.ac.in', username: '26MX105@psgtech.ac.in', password: 'password@123'}),
-    mk('U006', 'DHEENA DHAYAL M', 'student', {regNo: '26MX106', designation: 'MCA – I Year', department: 'MCA', email: '26MX106@psgtech.ac.in', username: '26MX106@psgtech.ac.in', password: 'password@123'}),
-    mk('U007', 'HARISHKUMAR S', 'student', {regNo: '26MX107', designation: 'MCA – I Year', department: 'MCA', email: '26MX107@psgtech.ac.in', username: '26MX107@psgtech.ac.in', password: 'password@123'}),
-    mk('U008', 'JAYAKUMAR M', 'student', {regNo: '26MX108', designation: 'MCA – I Year', department: 'MCA', email: '26MX108@psgtech.ac.in', username: '26MX108@psgtech.ac.in', password: 'password@123'}),
-    mk('U009', 'KARTHIKAA N', 'student', {regNo: '26MX109', designation: 'MCA – I Year', department: 'MCA', email: '26MX109@psgtech.ac.in', username: '26MX109@psgtech.ac.in', password: 'password@123'}),
-    mk('U010', 'KARTHIKEYAN S', 'student', {regNo: '26MX110', designation: 'MCA – I Year', department: 'MCA', email: '26MX110@psgtech.ac.in', username: '26MX110@psgtech.ac.in', password: 'password@123'}),
-    mk('U011', 'KARTHIKEYΙΝΙ Κ', 'student', {regNo: '26MX111', designation: 'MCA – I Year', department: 'MCA', email: '26MX111@psgtech.ac.in', username: '26MX111@psgtech.ac.in', password: 'password@123'}),
-    mk('U012', 'KAVYADHARSHINI S', 'student', {regNo: '26MX112', designation: 'MCA – I Year', department: 'MCA', email: '26MX112@psgtech.ac.in', username: '26MX112@psgtech.ac.in', password: 'password@123'}),
-    mk('U013', 'MAYUKA S', 'student', {regNo: '26MX113', designation: 'MCA – I Year', department: 'MCA', email: '26MX113@psgtech.ac.in', username: '26MX113@psgtech.ac.in', password: 'password@123'}),
-    mk('U014', 'MEGHA VARSHINI S', 'student', {regNo: '26MX114', designation: 'MCA – I Year', department: 'MCA', email: '26MX114@psgtech.ac.in', username: '26MX114@psgtech.ac.in', password: 'password@123'}),
-    mk('U015', 'MOHAMED ABDUL BASITH A A', 'student', {regNo: '26MX115', designation: 'MCA – I Year', department: 'MCA', email: '26MX115@psgtech.ac.in', username: '26MX115@psgtech.ac.in', password: 'password@123'}),
-    mk('U016', 'MRIDULA ST', 'student', {regNo: '26MX116', designation: 'MCA – I Year', department: 'MCA', email: '26MX116@psgtech.ac.in', username: '26MX116@psgtech.ac.in', password: 'password@123'}),
-    mk('U017', 'NIVEDHITHA G', 'student', {regNo: '26MX117', designation: 'MCA – I Year', department: 'MCA', email: '26MX117@psgtech.ac.in', username: '26MX117@psgtech.ac.in', password: 'password@123'}),
-    mk('U018', 'PARITHI R', 'student', {regNo: '26MX118', designation: 'MCA – I Year', department: 'MCA', email: '26MX118@psgtech.ac.in', username: '26MX118@psgtech.ac.in', password: 'password@123'}),
-    mk('U019', 'POORANI C', 'student', {regNo: '26MX119', designation: 'MCA – I Year', department: 'MCA', email: '26MX119@psgtech.ac.in', username: '26MX119@psgtech.ac.in', password: 'password@123'}),
-    mk('U020', 'PRIYA DHARSHINI R', 'student', {regNo: '26MX120', designation: 'MCA – I Year', department: 'MCA', email: '26MX120@psgtech.ac.in', username: '26MX120@psgtech.ac.in', password: 'password@123'}),
-    mk('U021', 'REBAKHA SNOWIT M', 'student', {regNo: '26MX121', designation: 'MCA – I Year', department: 'MCA', email: '26MX121@psgtech.ac.in', username: '26MX121@psgtech.ac.in', password: 'password@123'}),
-    mk('U022', 'SANJAY K', 'student', {regNo: '26MX122', designation: 'MCA – I Year', department: 'MCA', email: '26MX122@psgtech.ac.in', username: '26MX122@psgtech.ac.in', password: 'password@123'}),
-    mk('U023', 'SANTHOSH SIVARAMAN', 'student', {regNo: '26MX123', designation: 'MCA – I Year', department: 'MCA', email: '26MX123@psgtech.ac.in', username: '26MX123@psgtech.ac.in', password: 'password@123'}),
-    mk('U024', 'SHARMILAR', 'student', {regNo: '26MX124', designation: 'MCA – I Year', department: 'MCA', email: '26MX124@psgtech.ac.in', username: '26MX124@psgtech.ac.in', password: 'password@123'}),
-    mk('U025', 'SIVARANJAN R', 'student', {regNo: '26MX125', designation: 'MCA – I Year', department: 'MCA', email: '26MX125@psgtech.ac.in', username: '26MX125@psgtech.ac.in', password: 'password@123'}),
-    mk('U026', 'SIVASUDHAN R', 'student', {regNo: '26MX126', designation: 'MCA – I Year', department: 'MCA', email: '26MX126@psgtech.ac.in', username: '26MX126@psgtech.ac.in', password: 'password@123'}),
-    mk('U027', 'VYSHNAVI K', 'student', {regNo: '26MX127', designation: 'MCA – I Year', department: 'MCA', email: '26MX127@psgtech.ac.in', username: '26MX127@psgtech.ac.in', password: 'password@123'}),
-    mk('U028', 'YAJAT DEV V', 'student', {regNo: '26MX128', designation: 'MCA – I Year', department: 'MCA', email: '26MX128@psgtech.ac.in', username: '26MX128@psgtech.ac.in', password: 'password@123'}),
-    mk('U029', 'YUVAN PRASATH B', 'student', {regNo: '26MX129', designation: 'MCA – I Year', department: 'MCA', email: '26MX129@psgtech.ac.in', username: '26MX129@psgtech.ac.in', password: 'password@123'}),
-    mk('U030', 'AFFRIN JAWAHAR S', 'student', {regNo: '26MX201', designation: 'MCA – I Year', department: 'MCA', email: '26MX201@psgtech.ac.in', username: '26MX201@psgtech.ac.in', password: 'password@123'}),
-    mk('U031', 'ANANDHA LAKSHMI B', 'student', {regNo: '26MX202', designation: 'MCA – I Year', department: 'MCA', email: '26MX202@psgtech.ac.in', username: '26MX202@psgtech.ac.in', password: 'password@123'}),
-    mk('U032', 'DEEPA DHARSHINI G', 'student', {regNo: '26MX203', designation: 'MCA – I Year', department: 'MCA', email: '26MX203@psgtech.ac.in', username: '26MX203@psgtech.ac.in', password: 'password@123'}),
-    mk('U033', 'DHAYAANANDHAN V', 'student', {regNo: '26MX204', designation: 'MCA – I Year', department: 'MCA', email: '26MX204@psgtech.ac.in', username: '26MX204@psgtech.ac.in', password: 'password@123'}),
-    mk('U034', 'HARESH S', 'student', {regNo: '26MX205', designation: 'MCA – I Year', department: 'MCA', email: '26MX205@psgtech.ac.in', username: '26MX205@psgtech.ac.in', password: 'password@123'}),
-    mk('U035', 'HARI PRASANTH S', 'student', {regNo: '26MX206', designation: 'MCA – I Year', department: 'MCA', email: '26MX206@psgtech.ac.in', username: '26MX206@psgtech.ac.in', password: 'password@123'}),
-    mk('U036', 'HARSHINI G', 'student', {regNo: '26MX207', designation: 'MCA – I Year', department: 'MCA', email: '26MX207@psgtech.ac.in', username: '26MX207@psgtech.ac.in', password: 'password@123'}),
-    mk('U037', 'KAVYATHARSHINI P', 'student', {regNo: '26MX208', designation: 'MCA – I Year', department: 'MCA', email: '26MX208@psgtech.ac.in', username: '26MX208@psgtech.ac.in', password: 'password@123'}),
-    mk('U038', 'LAXMAN B', 'student', {regNo: '26MX209', designation: 'MCA – I Year', department: 'MCA', email: '26MX209@psgtech.ac.in', username: '26MX209@psgtech.ac.in', password: 'password@123'}),
-    mk('U039', 'MIRDULLA S', 'student', {regNo: '26MX210', designation: 'MCA – I Year', department: 'MCA', email: '26MX210@psgtech.ac.in', username: '26MX210@psgtech.ac.in', password: 'password@123'}),
-    mk('U040', 'MOHANRAJ N', 'student', {regNo: '26MX211', designation: 'MCA – I Year', department: 'MCA', email: '26MX211@psgtech.ac.in', username: '26MX211@psgtech.ac.in', password: 'password@123'}),
-    mk('U041', 'NYANTARA LAKSHMI DS', 'student', {regNo: '26MX212', designation: 'MCA – I Year', department: 'MCA', email: '26MX212@psgtech.ac.in', username: '26MX212@psgtech.ac.in', password: 'password@123'}),
-    mk('U042', 'POOJA S', 'student', {regNo: '26MX213', designation: 'MCA – I Year', department: 'MCA', email: '26MX213@psgtech.ac.in', username: '26MX213@psgtech.ac.in', password: 'password@123'}),
-    mk('U043', 'POOJASRI S', 'student', {regNo: '26MX214', designation: 'MCA – I Year', department: 'MCA', email: '26MX214@psgtech.ac.in', username: '26MX214@psgtech.ac.in', password: 'password@123'}),
-    mk('U044', 'RATHNA SHRI B', 'student', {regNo: '26MX215', designation: 'MCA – I Year', department: 'MCA', email: '26MX215@psgtech.ac.in', username: '26MX215@psgtech.ac.in', password: 'password@123'}),
-    mk('U045', 'SAMRITHI RAMESH', 'student', {regNo: '26MX216', designation: 'MCA – I Year', department: 'MCA', email: '26MX216@psgtech.ac.in', username: '26MX216@psgtech.ac.in', password: 'password@123'}),
-    mk('U046', 'SANJIVKUMAR A', 'student', {regNo: '26MX217', designation: 'MCA – I Year', department: 'MCA', email: '26MX217@psgtech.ac.in', username: '26MX217@psgtech.ac.in', password: 'password@123'}),
-    mk('U047', 'SANTHIYA T', 'student', {regNo: '26MX218', designation: 'MCA – I Year', department: 'MCA', email: '26MX218@psgtech.ac.in', username: '26MX218@psgtech.ac.in', password: 'password@123'}),
-    mk('U048', 'SHWETHA P', 'student', {regNo: '26MX219', designation: 'MCA – I Year', department: 'MCA', email: '26MX219@psgtech.ac.in', username: '26MX219@psgtech.ac.in', password: 'password@123'}),
-    mk('U049', 'SIVA PRASATH SIVA KUMAR', 'student', {regNo: '26MX220', designation: 'MCA – I Year', department: 'MCA', email: '26MX220@psgtech.ac.in', username: '26MX220@psgtech.ac.in', password: 'password@123'}),
-    mk('U050', 'SOFIYA A', 'student', {regNo: '26MX221', designation: 'MCA – I Year', department: 'MCA', email: '26MX221@psgtech.ac.in', username: '26MX221@psgtech.ac.in', password: 'password@123'}),
-    mk('U051', 'SRIGOWSHIKRAM D', 'student', {regNo: '26MX222', designation: 'MCA – I Year', department: 'MCA', email: '26MX222@psgtech.ac.in', username: '26MX222@psgtech.ac.in', password: 'password@123'}),
-    mk('U052', 'SUKANTHA SC', 'student', {regNo: '26MX223', designation: 'MCA – I Year', department: 'MCA', email: '26MX223@psgtech.ac.in', username: '26MX223@psgtech.ac.in', password: 'password@123'}),
-    mk('U053', 'VARSHA N', 'student', {regNo: '26MX224', designation: 'MCA – I Year', department: 'MCA', email: '26MX224@psgtech.ac.in', username: '26MX224@psgtech.ac.in', password: 'password@123'}),
-    mk('U054', 'VARSHANA R', 'student', {regNo: '26MX225', designation: 'MCA – I Year', department: 'MCA', email: '26MX225@psgtech.ac.in', username: '26MX225@psgtech.ac.in', password: 'password@123'}),
-    mk('U055', 'VARSHITAA SH', 'student', {regNo: '26MX226', designation: 'MCA – I Year', department: 'MCA', email: '26MX226@psgtech.ac.in', username: '26MX226@psgtech.ac.in', password: 'password@123'}),
-    mk('U056', 'VIGNESHWAR S', 'student', {regNo: '26MX227', designation: 'MCA – I Year', department: 'MCA', email: '26MX227@psgtech.ac.in', username: '26MX227@psgtech.ac.in', password: 'password@123'}),
-    mk('U057', 'VIGNESHWARAN S', 'student', {regNo: '26MX228', designation: 'MCA – I Year', department: 'MCA', email: '26MX228@psgtech.ac.in', username: '26MX228@psgtech.ac.in', password: 'password@123'}),
-    mk('U058', 'VIJAYANIVETHIKA RGM', 'student', {regNo: '26MX229', designation: 'MCA – I Year', department: 'MCA', email: '26MX229@psgtech.ac.in', username: '26MX229@psgtech.ac.in', password: 'password@123'}),
-    mk('U059', 'YUVASHRI MS', 'student', {regNo: '26MX230', designation: 'MCA – I Year', department: 'MCA', email: '26MX230@psgtech.ac.in', username: '26MX230@psgtech.ac.in', password: 'password@123'}),
-    mk('U060', 'ABIRAMI D', 'student', {regNo: '26MX301', designation: 'MCA – I Year', department: 'MCA', email: '26MX301@psgtech.ac.in', username: '26MX301@psgtech.ac.in', password: 'password@123'}),
-    mk('U061', 'ADITRI BALAJI', 'student', {regNo: '26MX302', designation: 'MCA – I Year', department: 'MCA', email: '26MX302@psgtech.ac.in', username: '26MX302@psgtech.ac.in', password: 'password@123'}),
-    mk('U062', 'AISHWARYAA S K', 'student', {regNo: '26MX303', designation: 'MCA – I Year', department: 'MCA', email: '26MX303@psgtech.ac.in', username: '26MX303@psgtech.ac.in', password: 'password@123'}),
-    mk('U063', 'AKILESH N', 'student', {regNo: '26MX304', designation: 'MCA – I Year', department: 'MCA', email: '26MX304@psgtech.ac.in', username: '26MX304@psgtech.ac.in', password: 'password@123'}),
-    mk('U064', 'ANANTHA LAKSHMI A', 'student', {regNo: '26MX305', designation: 'MCA – I Year', department: 'MCA', email: '26MX305@psgtech.ac.in', username: '26MX305@psgtech.ac.in', password: 'password@123'}),
-    mk('U065', 'ASHRITAA NAVANEETHA', 'student', {regNo: '26MX306', designation: 'MCA – I Year', department: 'MCA', email: '26MX306@psgtech.ac.in', username: '26MX306@psgtech.ac.in', password: 'password@123'}),
-    mk('U066', 'ASHWIN KUMAR G K', 'student', {regNo: '26MX307', designation: 'MCA – I Year', department: 'MCA', email: '26MX307@psgtech.ac.in', username: '26MX307@psgtech.ac.in', password: 'password@123'}),
-    mk('U067', 'ASINA P', 'student', {regNo: '26MX308', designation: 'MCA – I Year', department: 'MCA', email: '26MX308@psgtech.ac.in', username: '26MX308@psgtech.ac.in', password: 'password@123'}),
-    mk('U068', 'ASWATH NARAYANAN AC', 'student', {regNo: '26MX309', designation: 'MCA – I Year', department: 'MCA', email: '26MX309@psgtech.ac.in', username: '26MX309@psgtech.ac.in', password: 'password@123'}),
-    mk('U069', 'BALA SUBRAMANIAN B', 'student', {regNo: '26MX310', designation: 'MCA – I Year', department: 'MCA', email: '26MX310@psgtech.ac.in', username: '26MX310@psgtech.ac.in', password: 'password@123'}),
-    mk('U070', 'DEEPAN CHAKRAVARTHI S', 'student', {regNo: '26MX311', designation: 'MCA – I Year', department: 'MCA', email: '26MX311@psgtech.ac.in', username: '26MX311@psgtech.ac.in', password: 'password@123'}),
-    mk('U071', 'DHANYA LAKSHMI MU', 'student', {regNo: '26MX312', designation: 'MCA – I Year', department: 'MCA', email: '26MX312@psgtech.ac.in', username: '26MX312@psgtech.ac.in', password: 'password@123'}),
-    mk('U072', 'DHARSHINI GS', 'student', {regNo: '26MX313', designation: 'MCA – I Year', department: 'MCA', email: '26MX313@psgtech.ac.in', username: '26MX313@psgtech.ac.in', password: 'password@123'}),
-    mk('U073', 'DHARSHINI R', 'student', {regNo: '26MX314', designation: 'MCA – I Year', department: 'MCA', email: '26MX314@psgtech.ac.in', username: '26MX314@psgtech.ac.in', password: 'password@123'}),
-    mk('U074', 'DHARUNYA MP', 'student', {regNo: '26MX315', designation: 'MCA – I Year', department: 'MCA', email: '26MX315@psgtech.ac.in', username: '26MX315@psgtech.ac.in', password: 'password@123'}),
-    mk('U075', 'ELAKKIYA C', 'student', {regNo: '26MX316', designation: 'MCA – I Year', department: 'MCA', email: '26MX316@psgtech.ac.in', username: '26MX316@psgtech.ac.in', password: 'password@123'}),
-    mk('U076', 'ESAKI RAHUL M', 'student', {regNo: '26MX317', designation: 'MCA – I Year', department: 'MCA', email: '26MX317@psgtech.ac.in', username: '26MX317@psgtech.ac.in', password: 'password@123'}),
-    mk('U077', 'GAYATHRI J', 'student', {regNo: '26MX318', designation: 'MCA – I Year', department: 'MCA', email: '26MX318@psgtech.ac.in', username: '26MX318@psgtech.ac.in', password: 'password@123'}),
-    mk('U078', 'JAIRUS S', 'student', {regNo: '26MX319', designation: 'MCA – I Year', department: 'MCA', email: '26MX319@psgtech.ac.in', username: '26MX319@psgtech.ac.in', password: 'password@123'}),
-    mk('U079', 'JEEVA S', 'student', {regNo: '26MX320', designation: 'MCA – I Year', department: 'MCA', email: '26MX320@psgtech.ac.in', username: '26MX320@psgtech.ac.in', password: 'password@123'}),
-    mk('U080', 'JOSHIKA R', 'student', {regNo: '26MX321', designation: 'MCA – I Year', department: 'MCA', email: '26MX321@psgtech.ac.in', username: '26MX321@psgtech.ac.in', password: 'password@123'}),
-    mk('U081', 'KALARANI R', 'student', {regNo: '26MX322', designation: 'MCA – I Year', department: 'MCA', email: '26MX322@psgtech.ac.in', username: '26MX322@psgtech.ac.in', password: 'password@123'}),
-    mk('U082', 'KAVI PRIYA DHARSHINI B', 'student', {regNo: '26MX323', designation: 'MCA – I Year', department: 'MCA', email: '26MX323@psgtech.ac.in', username: '26MX323@psgtech.ac.in', password: 'password@123'}),
-    mk('U083', 'KEERTHANA AR', 'student', {regNo: '26MX324', designation: 'MCA – I Year', department: 'MCA', email: '26MX324@psgtech.ac.in', username: '26MX324@psgtech.ac.in', password: 'password@123'}),
-    mk('U084', 'KIRUBHAKARAN K', 'student', {regNo: '26MX325', designation: 'MCA – I Year', department: 'MCA', email: '26MX325@psgtech.ac.in', username: '26MX325@psgtech.ac.in', password: 'password@123'}),
-    mk('U085', 'KRIUTHI YOGITHA A', 'student', {regNo: '26MX326', designation: 'MCA – I Year', department: 'MCA', email: '26MX326@psgtech.ac.in', username: '26MX326@psgtech.ac.in', password: 'password@123'}),
-    mk('U086', 'MEENAKSHI M', 'student', {regNo: '26MX327', designation: 'MCA – I Year', department: 'MCA', email: '26MX327@psgtech.ac.in', username: '26MX327@psgtech.ac.in', password: 'password@123'}),
-    mk('U087', 'MOUNISHA M', 'student', {regNo: '26MX328', designation: 'MCA – I Year', department: 'MCA', email: '26MX328@psgtech.ac.in', username: '26MX328@psgtech.ac.in', password: 'password@123'}),
-    mk('U088', 'NABILA BANU R', 'student', {regNo: '26MX329', designation: 'MCA – I Year', department: 'MCA', email: '26MX329@psgtech.ac.in', username: '26MX329@psgtech.ac.in', password: 'password@123'}),
-    mk('U089', 'NADHISH B', 'student', {regNo: '26MX330', designation: 'MCA – I Year', department: 'MCA', email: '26MX330@psgtech.ac.in', username: '26MX330@psgtech.ac.in', password: 'password@123'}),
-    mk('U090', 'NARESHWARAN J', 'student', {regNo: '26MX331', designation: 'MCA – I Year', department: 'MCA', email: '26MX331@psgtech.ac.in', username: '26MX331@psgtech.ac.in', password: 'password@123'}),
-    mk('U091', 'NATESH M', 'student', {regNo: '26MX332', designation: 'MCA – I Year', department: 'MCA', email: '26MX332@psgtech.ac.in', username: '26MX332@psgtech.ac.in', password: 'password@123'}),
-    mk('U092', 'NAVYA S K', 'student', {regNo: '26MX333', designation: 'MCA – I Year', department: 'MCA', email: '26MX333@psgtech.ac.in', username: '26MX333@psgtech.ac.in', password: 'password@123'}),
-    mk('U093', 'NIGITHA G', 'student', {regNo: '26MX334', designation: 'MCA – I Year', department: 'MCA', email: '26MX334@psgtech.ac.in', username: '26MX334@psgtech.ac.in', password: 'password@123'}),
-    mk('U094', 'P USHA NANDHINI', 'student', {regNo: '26MX335', designation: 'MCA – I Year', department: 'MCA', email: '26MX335@psgtech.ac.in', username: '26MX335@psgtech.ac.in', password: 'password@123'}),
-    mk('U095', 'PAVATHARINI K', 'student', {regNo: '26MX336', designation: 'MCA – I Year', department: 'MCA', email: '26MX336@psgtech.ac.in', username: '26MX336@psgtech.ac.in', password: 'password@123'}),
-    mk('U096', 'POOJA M', 'student', {regNo: '26MX337', designation: 'MCA – I Year', department: 'MCA', email: '26MX337@psgtech.ac.in', username: '26MX337@psgtech.ac.in', password: 'password@123'}),
-    mk('U097', 'RAJAMADHANGI G', 'student', {regNo: '26MX338', designation: 'MCA – I Year', department: 'MCA', email: '26MX338@psgtech.ac.in', username: '26MX338@psgtech.ac.in', password: 'password@123'}),
-    mk('U098', 'ROHINI A', 'student', {regNo: '26MX339', designation: 'MCA – I Year', department: 'MCA', email: '26MX339@psgtech.ac.in', username: '26MX339@psgtech.ac.in', password: 'password@123'}),
-    mk('U099', 'ROYCE JOE L', 'student', {regNo: '26MX340', designation: 'MCA – I Year', department: 'MCA', email: '26MX340@psgtech.ac.in', username: '26MX340@psgtech.ac.in', password: 'password@123'}),
-    mk('U100', 'SAFEER AHAMED B', 'student', {regNo: '26MX341', designation: 'MCA – I Year', department: 'MCA', email: '26MX341@psgtech.ac.in', username: '26MX341@psgtech.ac.in', password: 'password@123'}),
-    mk('U101', 'SHAFEEQ', 'student', {regNo: '26MX342', designation: 'MCA – I Year', department: 'MCA', email: '26MX342@psgtech.ac.in', username: '26MX342@psgtech.ac.in', password: 'password@123'}),
-    mk('U102', 'SHRUTI ARUMUGAM', 'student', {regNo: '26MX343', designation: 'MCA – I Year', department: 'MCA', email: '26MX343@psgtech.ac.in', username: '26MX343@psgtech.ac.in', password: 'password@123'}),
-    mk('U103', 'SIVAKALAI Β', 'student', {regNo: '26MX344', designation: 'MCA – I Year', department: 'MCA', email: '26MX344@psgtech.ac.in', username: '26MX344@psgtech.ac.in', password: 'password@123'}),
-    mk('U104', 'SRI THANVARSHA C', 'student', {regNo: '26MX345', designation: 'MCA – I Year', department: 'MCA', email: '26MX345@psgtech.ac.in', username: '26MX345@psgtech.ac.in', password: 'password@123'}),
-    mk('U105', 'SRIDHANYA C', 'student', {regNo: '26MX346', designation: 'MCA – I Year', department: 'MCA', email: '26MX346@psgtech.ac.in', username: '26MX346@psgtech.ac.in', password: 'password@123'}),
-    mk('U106', 'SRINITHISH JK', 'student', {regNo: '26MX347', designation: 'MCA – I Year', department: 'MCA', email: '26MX347@psgtech.ac.in', username: '26MX347@psgtech.ac.in', password: 'password@123'}),
-    mk('U107', 'SRUTHI S', 'student', {regNo: '26MX348', designation: 'MCA – I Year', department: 'MCA', email: '26MX348@psgtech.ac.in', username: '26MX348@psgtech.ac.in', password: 'password@123'}),
-    mk('U108', 'SUDHARSHAN K', 'student', {regNo: '26MX349', designation: 'MCA – I Year', department: 'MCA', email: '26MX349@psgtech.ac.in', username: '26MX349@psgtech.ac.in', password: 'password@123'}),
-    mk('U109', 'SWETHA P', 'student', {regNo: '26MX350', designation: 'MCA – I Year', department: 'MCA', email: '26MX350@psgtech.ac.in', username: '26MX350@psgtech.ac.in', password: 'password@123'}),
-    mk('U110', 'THEEKSHNASHRI M', 'student', {regNo: '26MX351', designation: 'MCA – I Year', department: 'MCA', email: '26MX351@psgtech.ac.in', username: '26MX351@psgtech.ac.in', password: 'password@123'}),
-    mk('U111', 'VALARILAMBIRAI K S', 'student', {regNo: '26MX352', designation: 'MCA – I Year', department: 'MCA', email: '26MX352@psgtech.ac.in', username: '26MX352@psgtech.ac.in', password: 'password@123'}),
-    mk('U112', 'VELAYUTHAM V L', 'student', {regNo: '26MX353', designation: 'MCA – I Year', department: 'MCA', email: '26MX353@psgtech.ac.in', username: '26MX353@psgtech.ac.in', password: 'password@123'}),
-    mk('U113', 'VENKATESH CR', 'student', {regNo: '26MX354', designation: 'MCA – I Year', department: 'MCA', email: '26MX354@psgtech.ac.in', username: '26MX354@psgtech.ac.in', password: 'password@123'}),
-    mk('U114', 'VICTOR ANAND C', 'student', {regNo: '26MX355', designation: 'MCA – I Year', department: 'MCA', email: '26MX355@psgtech.ac.in', username: '26MX355@psgtech.ac.in', password: 'password@123'}),
-    mk('U115', 'VIDHYA BS', 'student', {regNo: '26MX356', designation: 'MCA – I Year', department: 'MCA', email: '26MX356@psgtech.ac.in', username: '26MX356@psgtech.ac.in', password: 'password@123'}),
-    mk('U116', 'VISHAL S', 'student', {regNo: '26MX357', designation: 'MCA – I Year', department: 'MCA', email: '26MX357@psgtech.ac.in', username: '26MX357@psgtech.ac.in', password: 'password@123'}),
-    mk('U117', 'VIVE DIVINA J', 'student', {regNo: '26MX358', designation: 'MCA – I Year', department: 'MCA', email: '26MX358@psgtech.ac.in', username: '26MX358@psgtech.ac.in', password: 'password@123'}),
-
-    // 3️⃣ RETAINED STAFF, HODs, DEANS & ADMIN (Required for backend workflow approval logic)
-    mk('F001', 'Dr. Ravi Shankar', 'tutor', { designation: 'Tutor, Asst. Professor' }),
-    mk('F002', 'Mr. Sundar C', 'faculty-advisor', { designation: 'Faculty Advisor' }),
-    mk('H001', 'Dr. S. Murugan', 'hod', { designation: 'Head of Department' }),
-    mk('D001', 'Dr. Anitha Rao', 'dean-su', { designation: 'Dean – Student Union' }),
-    mk('D002', 'Dr. K. Venkatesh', 'dean-admin', { designation: 'Dean – Administration' }),
-    mk('P001', 'Dr. R. Subramanian', 'principal', { designation: 'Principal' }),
-    mk('A001', 'System Admin', 'admin', { username: 'admin', password: 'admin123', designation: 'Administrator', department: 'Administration' }),
-  ];
-
-  await User.insertMany(seedUsers);
-  await Club.insertMany(['Coding Club', 'Robotics Club', 'Cultural Club', 'Photography Club'].map((name, i) => ({ id: `CL-${i + 1}`, name, active: true })));
-  await Association.insertMany(['CSE Association', 'ECE Association', 'Mechanical Association', 'MCA Association'].map((name, i) => ({ id: `AS-${i + 1}`, name })));
-  await EventActivity.insertMany(['Symposium', 'Hackathon', 'Workshop', 'Paper Presentation', 'Sports Meet', 'Cultural Fest', 'NSS Camp'].map((name, i) => ({ id: `EV-${i + 1}`, name, active: true })));
-  await Department.insertMany([['MCA', 'Computer Applications'], ['CSE', 'Computer Science & Engg.'], ['ECE', 'Electronics & Communication'], ['EEE', 'Electrical & Electronics'], ['MECH', 'Mechanical Engineering'], ['IT', 'Information Technology'], ['Administration', 'Administration']].map(([code, name], i) => ({ id: `DP-${i + 1}`, code, name })));
-  await Room.insertMany([
-    { id: 'RM-1', name: 'Seminar Hall', capacity: 200, equipment: ['Projector', 'Microphone', 'Speakers'], active: true },
-    { id: 'RM-2', name: 'Classroom A101', capacity: 60, equipment: ['Projector'], active: true },
-    { id: 'RM-3', name: 'Main Auditorium', capacity: 500, equipment: ['Projector', 'Microphone', 'Speakers', 'Stage Lights'], active: true },
-    { id: 'RM-4', name: 'Computer Lab 2', capacity: 40, equipment: ['Projector', 'Whiteboard'], active: true },
-  ]);
-
-  // Helper to simulate initial requests just like seed.js
-  const by = (role) => seedUsers.find((u) => u.role === role);
-  const decideLocal = (r, decision, user, remarks = '') => {
-    const i = r.status === 'Pending' ? r.approvals.findIndex((a) => a.status === 'Pending') : -1;
-    if (i < 0) return r;
-    const approvals = r.approvals.map((a) => ({ ...a }));
-    approvals[i] = { ...approvals[i], status: decision === 'approve' ? 'Approved' : 'Rejected', by: user.id, byName: user.name, at: new Date().toISOString(), remarks };
-    if (decision === 'reject') return { ...r, approvals, status: 'Rejected' };
-    if (i + 1 < approvals.length) { approvals[i + 1].status = 'Pending'; return { ...r, approvals }; }
-    return { ...r, approvals, status: 'Approved' };
-  };
-  const run = (r, steps) => steps.reduce((acc, [d, role, rem]) => decideLocal(acc, d, by(role), rem), r);
-  const ago = (h) => new Date(Date.now() - h * 36e5).toISOString();
-  
-  // 4️⃣ UPDATED DUMMY REQUESTS TO REFERENCE A REAL STUDENT FROM THE LIST (U001)
-  const od = (n, data, steps, h) => run({ id: `OD-${n}`, type: 'od', applicantId: 'U001', createdAt: ago(h), status: 'Pending', approvals: makeApprovals(FLOWS.od), data }, steps);
-  const bk = (n, kind, data, steps, h) => run({ id: `BK-${n}`, type: 'booking', kind, applicantId: 'U001', createdAt: ago(h), status: 'Pending', approvals: makeApprovals(FLOWS[kind]), data: { activityType: kind === 'club' ? 'Club-Based' : 'Association-Based', ...data } }, steps);
-
-  await Request.insertMany([
-    od(1001, { eventName: 'Hackathon', reason: 'Representing the college at the state-level hackathon.', date: '2026-11-20', subjects: 'DBMS, Operating Systems', attendance: 82, remarks: '' }, [], 5),
-    od(1002, { eventName: 'Paper Presentation', reason: 'Presenting a research paper at the NIT conference.', date: '2026-11-14', subjects: 'Computer Networks', attendance: 78, remarks: 'Certificate will be submitted.' }, [['approve', 'faculty-advisor', 'Approved. Good luck.']], 30),
-    od(1003, { eventName: 'Sports Meet', reason: 'Inter-college cricket tournament.', date: '2026-10-02', subjects: 'Maths, DBMS', attendance: 70, remarks: '' }, [['approve', 'faculty-advisor', 'Fine.'], ['reject', 'tutor', 'Attendance is below the required level.']], 200),
-    bk(2001, 'association', { groupName: 'CSE Association', eventName: 'TechNova Symposium', description: 'Annual technical symposium.', date: '2026-12-05', start: '09:00', end: '16:00', participants: 180, room: 'Seminar Hall', venue: 'Main Block', equipment: ['Projector', 'Microphone'], additional: '', contact: '9876543210' }, [], 8),
-    bk(2002, 'club', { groupName: 'Coding Club', eventName: 'CodeSprint', description: '6-hour coding contest.', date: '2026-11-28', start: '10:00', end: '16:00', participants: 40, room: 'Computer Lab 2', venue: 'IT Block', equipment: ['Projector'], additional: '', contact: '9876543210' }, [['approve', 'faculty-advisor', 'Recommended.']], 20),
-  ]);
-
-  await Notification.insertMany([
-    { id: 'N1', role: 'faculty-advisor', text: 'New OD application OD-1001 received.', at: ago(5), read: false },
-    { id: 'N2', role: 'faculty-advisor', text: 'New room booking request BK-2001 received.', at: ago(8), read: false },
-  ]);
+  const s = buildSeed();
+  await User.insertMany(s.users);
+  await Club.insertMany(s.clubs);
+  await Association.insertMany(s.associations);
+  await EventActivity.insertMany(s.events);
+  await Department.insertMany(s.departments);
+  await Room.insertMany(s.rooms);
+  await Request.insertMany(s.requests);
+  await Notification.insertMany(s.notifications);
 
   console.log('✅ Auto-seeding complete! All users, clubs, rooms, and requests are now in MongoDB.');
 }
 
 // =========================================================
-// 9. CONNECT TO MONGODB & START SERVER
+// 8. CONNECT TO MONGODB & START SERVER
 // =========================================================
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
