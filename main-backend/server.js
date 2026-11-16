@@ -1,3 +1,6 @@
+const dns = require('dns');
+dns.setServers(['8.8.8.8','1.1.1.1']);
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -244,11 +247,20 @@ app.post('/api/requests', async (req, res) => {
       kind: payload.kind,
       applicantId: payload.applicantId || (req.user && req.user.id) || 'U001',
       createdAt: new Date().toISOString(),
-      status: 'Pending',
+       status: payload.status === 'Draft' ? 'Draft' : 'Pending',   
       approvals: payload.approvals || makeApprovals(flow),
       data: payload.data
     });
 
+    if (newReq.status !== 'Draft') {                               // changed
+  await Notification.create({
+    id: `N-${Date.now()}`,
+    role: 'faculty-advisor',
+    text: `New ${isOd ? 'OD application' : 'room booking'} ${newReq.id} received.`,
+    at: new Date().toISOString(),
+    read: false
+  });
+}
     await Notification.create({
       id: `N-${Date.now()}`,
       role: 'faculty-advisor',

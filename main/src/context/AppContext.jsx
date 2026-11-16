@@ -33,6 +33,14 @@ export function AppProvider({ children }) {
     setToasts((t) => [...t, { id, message, type }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }, []);
+   useEffect(() => {
+    if (!sessionId) return;
+    requestAPI.list()
+      .then((res) => setDb((d) => ({ ...d, requests: res.data })))
+      .catch(() => {});
+  }, [sessionId]);
+
+
 
   const notifyFn = (list, target, text) => [{ id: uid('N'), ...target, text, at: new Date().toISOString(), read: false }, ...list];
 
@@ -101,16 +109,35 @@ export function AppProvider({ children }) {
   };
 
   // ---------- requests ----------
-  const createRequest = ({ type, kind, data, draft = false }) => {
-    const n = db.requests.filter((r) => r.type === type).length + (type === 'od' ? 1001 : 2001);
-    const req = { id: `${type === 'od' ? 'OD' : 'BK'}-${n}`, type, kind: type === 'od' ? undefined : kind, applicantId: user.id, createdAt: new Date().toISOString(), status: draft ? 'Draft' : 'Pending', data };
-    req.approvals = makeApprovals(flowOf(req));
-    setDb((d) => ({
-      ...d, requests: [req, ...d.requests],
-      notifications: draft ? d.notifications : notifyFn(d.notifications, { role: req.approvals[0].role }, `New ${type === 'od' ? 'OD application' : 'room booking request'} ${req.id} received from ${user.name}.`),
-    }));
-    toast(draft ? 'Draft saved.' : `${req.id} submitted successfully.`);
-    return req;
+const createRequest = async ({ type, kind, data, draft = false }) => {
+    try {
+      const res = await requestAPI.create({
+        type,
+        kind: type === 'od' ? undefined : kind,
+        applicantId: user.id,
+        status: draft ? 'Draft' : 'Pending',
+        data,
+      });
+      const saved = res.data; // request as stored in MongoDB, with its generated id
+
+      setDb((d) => ({
+        ...d,
+        requests: [saved, ...d.requests],
+        notifications: draft
+          ? d.notifications
+          : notifyFn(
+              d.notifications,
+              { role: saved.approvals[0].role },
+              `New ${type === 'od' ? 'OD application' : 'room booking request'} ${saved.id} received from ${user.name}.`
+            ),
+      }));
+
+      toast(draft ? 'Draft saved.' : `${saved.id} submitted successfully.`);
+      return saved;
+    } catch (error) {
+      toast(error.response?.data?.message || 'Could not submit the request.', 'error');
+      return null;
+    }
   };
   const submitDraft = (id) => { toast(`${id} submitted successfully.`); setDb((d) => {
     const r = d.requests.find((x) => x.id === id);
