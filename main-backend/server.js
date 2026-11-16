@@ -1,6 +1,10 @@
 const dns = require('dns');
+<<<<<<< HEAD
 dns.setServers(['8.8.8.8','1.1.1.1']);
 
+=======
+dns.setServers(['8.8.8.8', '1.1.1.1']);
+>>>>>>> 75dd197ff257b88a427e518e1e288e2042498edd
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
