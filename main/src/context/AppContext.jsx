@@ -40,11 +40,9 @@ export function AppProvider({ children }) {
       .catch(() => {});
   }, [sessionId]);
 
-
-
   const notifyFn = (list, target, text) => [{ id: uid('N'), ...target, text, at: new Date().toISOString(), read: false }, ...list];
 
-  // ---------- auth ----------
+  
   const login = async ({ identifier, password, admin, remember }) => {
   try {
     const id = identifier.trim().toLowerCase();

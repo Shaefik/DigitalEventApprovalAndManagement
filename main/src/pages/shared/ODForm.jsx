@@ -42,6 +42,6 @@ const submit = async (e) => {
       {low && <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">Attendance is below {db.settings.odMinAttendance}%. Your approvers may reject this request.</p>}
       <Input label="Subject(s) that will be missed" required placeholder="e.g. DBMS, Operating Systems" value={f.subjects} onChange={set('subjects')} error={err.subjects} />
       <Textarea label="Additional remarks" rows={2} value={f.remarks} onChange={set('remarks')} />
-<div className="flex justify-end gap-2"><button type="button" className="btn-ghost" onClick={() => nav(-1)}>Cancel</button><button className="btn-primary" disabled={saving}>{saving ? 'Submitting...' : 'Submit application'}</button></div>    </form>
+<div className="flex justify-end gap-2"><button type="button" className="btn-ghost" onClick={() => nav(-1)}>Cancel</button><button className="btn-primary" disabled={saving}>{saving ?'Submitting...' : 'Submit application'}</button></div>    </form>
   );
 }
