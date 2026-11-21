@@ -137,26 +137,43 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
       return null;
     }
   };
-  const submitDraft = (id) => { toast(`${id} submitted successfully.`); setDb((d) => {
-    const r = d.requests.find((x) => x.id === id);
-    return { ...d, requests: d.requests.map((x) => (x.id === id ? { ...x, status: 'Pending' } : x)), notifications: notifyFn(d.notifications, { role: r.approvals[0].role }, `New room booking request ${id} received.`) };
-  }); };
-  const decideRequest = (id, decision, remarks) => {
-    setDb((d) => {
-      const r = d.requests.find((x) => x.id === id);
-      const out = decide(r, decision, user, remarks);
-      const label = ROLE_LABELS[user.role];
-      let notes = d.notifications;
-      if (out.status === 'Rejected') notes = notifyFn(notes, { userId: r.applicantId }, `${id} was rejected by ${label}: ${remarks}`);
-      else if (out.status === 'Approved') notes = notifyFn(notes, { userId: r.applicantId }, r.type === 'od' ? `${id} is fully approved. Your OD is granted.` : `${id} fully approved by ${label}. Room booking confirmed.`);
-      else {
-        const next = currentRole(out);
-        notes = notifyFn(notes, { role: next }, `${id} approved by ${label} and forwarded to you.`);
-        notes = notifyFn(notes, { userId: r.applicantId }, `${id} approved by ${label} and forwarded to ${ROLE_LABELS[next]}.`);
-      }
-      return { ...d, requests: d.requests.map((x) => (x.id === id ? out : x)), notifications: notes };
-    });
-    toast(decision === 'approve' ? `${id} approved.` : `${id} rejected.`, decision === 'approve' ? 'success' : 'error');
+
+  const submitDraft = async (id) => {
+    try {
+      const res = await requestAPI.submit(id);
+      const saved = res.data;
+      setDb((d) => ({
+        ...d,
+        requests: d.requests.map((x) => (x.id === id ? saved : x)),
+        notifications: notifyFn(d.notifications, { role: saved.approvals[0].role }, `New room booking request ${id} received.`),
+      }));
+      toast(`${id} submitted successfully.`);
+    } catch (error) {
+      toast(error.response?.data?.message || 'Could not submit the draft.', 'error');
+    }
+  };
+ 
+  const decideRequest = async (id, decision, remarks) => {
+    try {
+      const res = await requestAPI.decide(id, { decision, remarks });
+      const out = res.data; // saved in MongoDB by the backend (email is sent there)
+      setDb((d) => {
+        const r = d.requests.find((x) => x.id === id) || out;
+        const label = ROLE_LABELS[user.role];
+        let notes = d.notifications;
+        if (out.status === 'Rejected') notes = notifyFn(notes, { userId: r.applicantId }, `${id} was rejected by ${label}: ${remarks}`);
+        else if (out.status === 'Approved') notes = notifyFn(notes, { userId: r.applicantId }, r.type === 'od' ? `${id} is fully approved. Your OD is granted.` : `${id} fully approved by ${label}. Room booking confirmed.`);
+        else {
+          const next = currentRole(out);
+          notes = notifyFn(notes, { role: next }, `${id} approved by ${label} and forwarded to you.`);
+          notes = notifyFn(notes, { userId: r.applicantId }, `${id} approved by ${label} and forwarded to ${ROLE_LABELS[next]}.`);
+        }
+        return { ...d, requests: d.requests.map((x) => (x.id === id ? out : x)), notifications: notes };
+      });
+      toast(decision === 'approve' ? `${id} approved.` : `${id} rejected.`, decision === 'approve' ? 'success' : 'error');
+    } catch (error) {
+      toast(error.response?.data?.message || 'Could not save your decision.', 'error');
+    }
   };
 
   // ---------- generic CRUD (admin master data) ----------
