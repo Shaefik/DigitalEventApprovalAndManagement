@@ -41,7 +41,9 @@ function buildSeed() {
       designation: 'Administrator',
       department: 'Administration',
     }),
+    mk('S001', 'Student Secretary', 'secretary', { designation: 'Secretary', department: 'MCA' }),
   ];
+  
 
   const users = [...students, ...staff];
 

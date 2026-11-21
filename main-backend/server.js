@@ -199,9 +199,7 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
     const user = await User.findOne({ id: req.user.id });
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    // TEMPORARY DEBUG - remove after testing
-    console.log('TOKEN ID:', req.user.id, '| DB USER:', user.username, '| STORED:', JSON.stringify(user.password), '| TYPED:', JSON.stringify(currentPassword));
-
+  
     if (user.password !== currentPassword) {
       return res.status(400).json({ message: 'Current password is incorrect.' });
     }
@@ -232,7 +230,7 @@ app.get('/api/requests', async (req, res) => {
 });
 
 // POST /api/requests -> Create new OD or Room Booking request
-app.post('/api/requests', async (req, res) => {
+app.post('/api/requests',requireAuth, async (req, res) => {
   try {
     const payload = req.body;
     const isOd = payload.type === 'od';
@@ -240,12 +238,13 @@ app.post('/api/requests', async (req, res) => {
     const randomNum = Math.floor(1000 + Math.random() * 9000);
 
     const flow = isOd ? FLOWS.od : FLOWS[payload.kind];
+    if (!flow) return res.status(400).json({ message: 'Invalid request type or kind.' });
 
     const newReq = await Request.create({
       id: payload.id || `${prefix}-${randomNum}`,
       type: payload.type,
       kind: payload.kind,
-      applicantId: payload.applicantId || (req.user && req.user.id) || 'U001',
+       applicantId: req.user.id,          
       createdAt: new Date().toISOString(),
        status: payload.status === 'Draft' ? 'Draft' : 'Pending',   
       approvals: payload.approvals || makeApprovals(flow),
@@ -255,43 +254,68 @@ app.post('/api/requests', async (req, res) => {
     if (newReq.status !== 'Draft') {                               // changed
   await Notification.create({
     id: `N-${Date.now()}`,
-    role: 'faculty-advisor',
+     role: newReq.approvals[0].role,
     text: `New ${isOd ? 'OD application' : 'room booking'} ${newReq.id} received.`,
     at: new Date().toISOString(),
     read: false
   });
 }
-    await Notification.create({
-      id: `N-${Date.now()}`,
-      role: 'faculty-advisor',
-      text: `New ${isOd ? 'OD application' : 'room booking'} ${newReq.id} received.`,
-      at: new Date().toISOString(),
-      read: false
-    });
-
+   
     res.status(201).json(newReq);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-// POST /api/requests/:id/decision -> Approve or Reject
-app.post('/api/requests/:id/decision', async (req, res) => {
+// POST /api/requests/:id/submit -> send a saved Draft for approval
+app.post('/api/requests/:id/submit', requireAuth, async (req, res) => {
   try {
-    const { decision, remarks = '', user: bodyUser } = req.body;
-    const actor = bodyUser || req.user || { id: 'U004', name: 'Authority' };
+    const r = await Request.findOne({ id: req.params.id });
+    if (!r) return res.status(404).json({ message: 'Request not found' });
+    if (r.applicantId !== req.user.id) return res.status(403).json({ message: 'Not your request.' });
+    if (r.status !== 'Draft') return res.status(400).json({ message: 'Only drafts can be submitted.' });
+
+    r.status = 'Pending';
+    await r.save();
+    await Notification.create({
+      id: `N-${Date.now()}`,
+      role: r.approvals[0].role,
+      text: `New ${r.type === 'od' ? 'OD application' : 'room booking'} ${r.id} received.`,
+      at: new Date().toISOString(),
+      read: false
+    });
+    res.json(r);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
+  try {
+    const { decision, remarks = '' } = req.body;
+    if (!['approve', 'reject'].includes(decision)) {
+      return res.status(400).json({ message: 'decision must be "approve" or "reject".' });
+    }
+    if (decision === 'reject' && !String(remarks).trim()) {
+      return res.status(400).json({ message: 'Please give a reason for rejecting.' });
+    }
+    const actor = req.user;
 
     const r = await Request.findOne({ id: req.params.id });
     if (!r) return res.status(404).json({ message: 'Request not found' });
 
     const i = r.status === 'Pending' ? r.approvals.findIndex(a => a.status === 'Pending') : -1;
-    if (i < 0) return res.json(r);
+    if (i < 0) return res.status(400).json({ message: `This request is already ${r.status}.` });
+
+    // only the person whose turn it is may decide
+    if (r.approvals[i].role !== actor.role) {
+      return res.status(403).json({ message: 'It is not your turn to act on this request.' });
+    }
 
     r.approvals[i].status = decision === 'approve' ? 'Approved' : 'Rejected';
     r.approvals[i].by = actor.id;
     r.approvals[i].byName = actor.name;
     r.approvals[i].at = new Date().toISOString();
-    r.approvals[i].remarks = remarks;
+    r.approvals[i].remarks = String(remarks).trim();
 
     if (decision === 'reject') {
       r.status = 'Rejected';
@@ -310,6 +334,7 @@ app.post('/api/requests/:id/decision', async (req, res) => {
     }
 
     await r.save();
+
     res.json(r);
   } catch (err) {
     res.status(400).json({ message: err.message });
