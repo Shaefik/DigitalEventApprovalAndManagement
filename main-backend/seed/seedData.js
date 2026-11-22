@@ -1,4 +1,5 @@
 const studentList = require('./students');
+const facultyList = require('./faculty');
 const { FLOWS, makeApprovals, decideLocal } = require('../workflow');
 
 const mk = (id, name, role, extra = {}) => ({
@@ -20,6 +21,9 @@ function buildSeed() {
   const students = studentList.map(([regNo, name], i) =>
     mk(`U${String(i + 1).padStart(3, '0')}`, name, 'student', {
       regNo,
+// adding section 
+      section: regNo.startsWith('26MX3') ? '2' : '1' ,
+      
       designation: 'MCA – I Year',
       department: 'MCA',
       email: `${regNo}@psgtech.ac.in`,
@@ -29,20 +33,23 @@ function buildSeed() {
   );
 
   const staff = [
-    mk('F001', 'Dr. Ravi Shankar', 'tutor', { designation: 'Tutor, Asst. Professor' }),
-    mk('F002', 'Mr. Sundar C', 'faculty-advisor', { designation: 'Faculty Advisor' }),
-    mk('H001', 'Dr. S. Murugan', 'hod', { designation: 'Head of Department' }),
-    mk('D001', 'Dr. Anitha Rao', 'dean-su', { designation: 'Dean – Student Union' }),
-    mk('D002', 'Dr. K. Venkatesh', 'dean-admin', { designation: 'Dean – Administration' }),
-    mk('P001', 'Dr. R. Subramanian', 'principal', { designation: 'Principal' }),
-    mk('A001', 'System Admin', 'admin', {
-      username: 'admin',
-      password: 'admin123',
-      designation: 'Administrator',
-      department: 'Administration',
-    }),
-    mk('S001', 'Student Secretary', 'secretary', { designation: 'Secretary', department: 'MCA' }),
-  ];
+  ...facultyList,
+
+  mk('A001', 'System Admin', 'admin', {
+    username: 'admin',
+    email: 'admin@college.edu',
+    password: 'admin123',
+    designation: 'Administrator',
+    department: 'Administration',
+  }),
+
+  mk('S001', 'Student Secretary', 'secretary', {
+    username: 'secretary@college.edu',
+    email: 'secretary@college.edu',
+    designation: 'Secretary',
+    department: 'MCA',
+  }),
+];
   
 
   const users = [...students, ...staff];

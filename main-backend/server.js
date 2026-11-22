@@ -1,6 +1,9 @@
 const dns = require('dns');
 dns.setServers(['8.8.8.8','1.1.1.1']);
 
+// faculty import
+const facultyList = require('./seed/faculty');
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -30,6 +33,8 @@ const User = mongoose.model('User', new mongoose.Schema({
   email: String,
   username: String,
   regNo: { type: String, default: '' },
+  //included section
+  section: { type: String, default: ''},
   department: { type: String, default: 'CSE' },
   designation: { type: String, default: '' },
   password: { type: String, default: 'password123' },
@@ -457,13 +462,59 @@ async function seedDatabaseIfEmpty() {
   console.log('✅ Auto-seeding complete! All users, clubs, rooms, and requests are now in MongoDB.');
 }
 
+async function syncStudentSections() {
+  const students = buildSeed().users.filter(
+    user => user.role === 'student'
+  );
+
+  for (const student of students) {
+    await User.updateOne(
+      { regNo: student.regNo, role: 'student' },
+      {
+        $set: {
+          section: student.section,
+        },
+      }
+    );
+  }
+
+  console.log('✅ Student sections synced successfully!');
+}
+
+//adding seperate function to chech faculty records
+
+async function seedFacultyUsers() {
+  console.log('🌱 Checking faculty records...');
+
+  for (const faculty of facultyList) {
+    await User.findOneAndUpdate(
+      { id: faculty.id },
+      { $set: faculty },
+      {
+        upsert: true,
+        returnDocument: 'after',
+        runValidators: true,
+      }
+    );
+  }
+
+  console.log('✅ Faculty records synced successfully!');
+}
+
 // =========================================================
 // 8. CONNECT TO MONGODB & START SERVER
 // =========================================================
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ Connected to MongoDB!');
+
     await seedDatabaseIfEmpty();
+    // Student Section test after added
+    await syncStudentSections();
+
+    // Always sync faculty, even when students already exist
+    await seedFacultyUsers();
+
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Backend Server running at http://localhost:${PORT}/api`));
   })
