@@ -22,7 +22,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h2 className="text-2xl font-extrabold text-navy-900">Welcome, {user.name.split(' ')[0]}</h2><p className="text-sm text-slate-500">{ROLE_LABELS[user.role]} · {user.department}</p></div>
+        <div><h2 className="text-2xl font-extrabold text-navy-900">Welcome, {user.name}</h2><p className="text-sm text-slate-500">{ROLE_LABELS[user.role]} · {user.department}</p></div>
         <div className="flex gap-2">
           {own && <Link to={`/${user.role}/od-new`} className="btn-primary"><FilePlus2 size={16} />Quick apply OD</Link>}
           {user.role === 'secretary' && <Link to={`/${user.role}/bk-new`} className="btn-ghost"><DoorOpen size={16} />New booking</Link>}

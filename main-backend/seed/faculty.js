@@ -31,7 +31,7 @@ const facultyList = [
   // FACULTY ADVISOR
   {
     id: 'F003',
-    name: 'Mrs. Kalyani A',
+    name: 'Mrs.Kalyani A',
     role: 'faculty-advisor',
     email: 'akk.mca@psgtech.ac.in',
     username: 'akk.mca@psgtech.ac.in',
@@ -47,7 +47,7 @@ const facultyList = [
     name: 'Dr. ilayaraja N',
     role: 'hod',
     email: 'nir.mca@psgtech.ac.in',
-    username: 'nir.mca@psgteh.ac.in',
+    username: 'nir.mca@psgtech.ac.in',
     department: 'MCA',
     designation: 'Head of Department',
     password: 'password123',
@@ -85,7 +85,7 @@ const facultyList = [
     id: 'P001',
     name: 'Dr. G. Thilagavathi',
     role: 'principal',
-    email: 'principal@psgtech.edu',
+    email: 'principal@psgtech.edu.ac.in',
     username: 'principal@psgtech.edu',
     department: 'Administration',
     designation: 'Principal',

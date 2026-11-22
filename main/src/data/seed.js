@@ -6,17 +6,16 @@ const mk = (id, name, role, extra = {}) => ({
 });
 
 export const seedUsers = [
-  mk('U001', 'Aarav Kumar', 'student', { regNo: '21CS101', designation: 'B.E. CSE – III Year' }),
-  mk('U002', 'Meera Nair', 'secretary', { regNo: '21CS115', designation: 'Student Secretary' }),
-  mk('U003', 'Dr. Ravi Shankar', 'tutor', { designation: 'Tutor, Asst. Professor' }),
-  mk('U004', 'Prof. Lakshmi Devi', 'faculty-advisor', { designation: 'Faculty Advisor' }),
-  mk('U005', 'Dr. S. Murugan', 'hod', { designation: 'Head of Department' }),
-  mk('U006', 'Dr. Anitha Rao', 'dean-su', { designation: 'Dean – Student Union' }),
-  mk('U007', 'Dr. K. Venkatesh', 'dean-admin', { designation: 'Dean – Administration' }),
-  mk('U008', 'Dr. R. Subramanian', 'principal', { designation: 'Principal' }),
-  mk('U009', 'System Admin', 'admin', { username: 'admin', password: 'admin123', designation: 'Administrator', department: 'Administration' }),
+  mk('U002', 'Natesh', 'secretary', { regNo: '26MX332', designation: 'Student Secretary' }),
+  mk('F001', 'Mr. Sundar C', 'tutor', { email: 'csr.mca@psgtech.ac.in', username: 'csr.mca@psgtech.ac.in', department: 'MCA', designation: 'Tutor, Assistant Professor' }),
+  mk('F002', 'Dr. Bhama S', 'tutor', { email: 'sba.mca@psgtech.ac.in', username: 'sba.mca@psgtech.ac.in', department: 'MCA', designation: 'Tutor, Assistant Professor' }),
+  mk('F003', 'Mrs. Kalyani A', 'faculty-advisor', { email: 'akk.mca@psgtech.ac.in', username: 'akk.mca@psgtech.ac.in', department: 'MCA', designation: 'Faculty Advisor' }),
+  mk('H001', 'Dr. Ilayaraja N', 'hod', { email: 'nir.mca@psgtech.ac.in', username: 'nir.mca@psgtech.ac.in', department: 'MCA', designation: 'Head of Department' }),
+  mk('D001', 'Dr. Anitha Rao', 'dean-su', { email: 'deansu@college.edu', username: 'deansu@college.edu', designation: 'Dean – Student Union' }),
+  mk('D002', 'Dr S Saravanan', 'dean-admin', { email: 'dean.admn@psgtech.ac.in', username: 'dean.admn@psgtech.ac.in', designation: 'Dean – Administration' }),
+  mk('P001', 'Dr. G. Thilagavathi', 'principal', { email: 'principal@psgtech.edu', username: 'principal@psgtech.edu', designation: 'Principal' }),
+  mk('A001', 'System Admin', 'admin', { username: 'admin', password: 'admin123', designation: 'Administrator', department: 'Administration' }),
 ];
-
 const id = (p, n) => `${p}-${n}`;
 export const seedClubs = ['Coding Club', 'Robotics Club', 'Cultural Club', 'Photography Club'].map((name, i) => ({ id: id('CL', i + 1), name, active: true }));
 export const seedAssociations = ['CSE Association', 'ECE Association', 'Mechanical Association'].map((name, i) => ({ id: id('AS', i + 1), name }));

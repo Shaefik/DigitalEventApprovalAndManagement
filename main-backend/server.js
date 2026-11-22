@@ -227,7 +227,21 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
 // GET /api/requests -> List all OD and Hall Booking requests
 app.get('/api/requests', async (req, res) => {
   try {
-    const requests = await Request.find().sort({ createdAt: -1 });
+       
+    let filter = {};
+    // A tutor only sees requests from students of their own section
+    if (req.user && req.user.role === 'tutor') {
+      const me = await User.findOne({ id: req.user.id });
+      if (me && me.section) {
+        const ids = await User.find({
+          role: { $in: ['student', 'secretary'] },
+          section: { $in: [me.section, '', null] },
+        }).distinct('id');
+        filter = { applicantId: { $in: ids } };
+      }
+    }
+    
+    const requests = await Request.find(filter).sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -314,6 +328,16 @@ app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
     // only the person whose turn it is may decide
     if (r.approvals[i].role !== actor.role) {
       return res.status(403).json({ message: 'It is not your turn to act on this request.' });
+    }
+        // tutors: only the tutor of the student's own section may act
+    if (actor.role === 'tutor') {
+      const [me, applicant] = await Promise.all([
+        User.findOne({ id: actor.id }),
+        User.findOne({ id: r.applicantId }),
+      ]);
+      if (me && me.section && applicant && applicant.section && applicant.section !== me.section) {
+        return res.status(403).json({ message: 'This student belongs to another tutor section.' });
+      }
     }
 
     r.approvals[i].status = decision === 'approve' ? 'Approved' : 'Rejected';

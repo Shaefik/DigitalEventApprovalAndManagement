@@ -2,6 +2,15 @@ const studentList = require('./students');
 const facultyList = require('./faculty');
 const { FLOWS, makeApprovals, decideLocal } = require('../workflow');
 
+
+const SECTION_RANGES = [['G1', 101, 230], ['G2', 301, 358]];   
+const sectionOf = (regNo) => {
+  const n = parseInt(String(regNo).slice(-3), 10);
+  const hit = SECTION_RANGES.find(([, from, to]) => n >= from && n <= to);
+  return hit ? hit[0] : '';
+};
+
+const SECRETARY_REGNO = '26MX332';
 const mk = (id, name, role, extra = {}) => ({
   id,
   name,
@@ -18,22 +27,21 @@ const mk = (id, name, role, extra = {}) => ({
 
 function buildSeed() {
   // ---------- Users ----------
-  const students = studentList.map(([regNo, name], i) =>
-    mk(`U${String(i + 1).padStart(3, '0')}`, name, 'student', {
+   const students = studentList.map(([regNo, name], i) =>
+    mk(`U${String(i + 1).padStart(3, '0')}`, name, regNo === SECRETARY_REGNO ? 'secretary' : 'student', {
       regNo,
-// adding section 
-      section: regNo.startsWith('26MX3') ? '2' : '1' ,
-      
-      designation: 'MCA – I Year',
+      section: sectionOf(regNo),
+      designation: regNo === SECRETARY_REGNO ? 'Student Secretary, MCA – I Year' : 'MCA – I Year',
       department: 'MCA',
       email: `${regNo}@psgtech.ac.in`,
       username: `${regNo}@psgtech.ac.in`,
       password: 'password@123',
     })
   );
+    const faculty = facultyList.map((f) => mk(f.id, f.name, f.role, f));
 
   const staff = [
-  ...facultyList,
+  ...faculty,
 
   mk('A001', 'System Admin', 'admin', {
     username: 'admin',
@@ -44,9 +52,9 @@ function buildSeed() {
   }),
 
   mk('S001', 'Student Secretary', 'secretary', {
-    username: 'secretary@college.edu',
-    email: 'secretary@college.edu',
-    designation: 'Secretary',
+    username: 'Natesh M',
+    email: '26mx332@psgtech.ac.in',
+    designation: 'Student Secretary',
     department: 'MCA',
   }),
 ];

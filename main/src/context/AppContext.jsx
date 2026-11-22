@@ -38,6 +38,14 @@ export function AppProvider({ children }) {
     requestAPI.list()
       .then((res) => setDb((d) => ({ ...d, requests: res.data })))
       .catch(() => {});
+          Promise.all(['users', 'clubs', 'associations', 'events', 'departments', 'rooms'].map((r) => masterAPI(r).list()))
+      .then(([users, clubs, associations, events, departments, rooms]) =>
+        setDb((d) => ({
+          ...d,
+          users: users.data, clubs: clubs.data, associations: associations.data,
+          events: events.data, departments: departments.data, rooms: rooms.data,
+        })))
+      .catch(() => {});
   }, [sessionId]);
 
   const notifyFn = (list, target, text) => [{ id: uid('N'), ...target, text, at: new Date().toISOString(), read: false }, ...list];
