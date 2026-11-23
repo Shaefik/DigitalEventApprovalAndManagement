@@ -50,4 +50,4 @@ export const seedNotifications = [
   { id: 'N3', role: 'tutor', text: 'OD-1002 forwarded to you by Faculty Advisor.', at: ago(29), read: false },
 ];
 
-export const seedSettings = { collegeName: 'Excel Institute of Technology', academicYear: '2026-27', odMinAttendance: 75, emailAlerts: true };
+export const seedSettings = { collegeName: 'PSG COllege of Technology',odMinAttendance: 75, emailAlerts: true };

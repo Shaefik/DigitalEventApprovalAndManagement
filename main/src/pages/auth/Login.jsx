@@ -99,7 +99,7 @@ export default function Login() {
             <button className="btn-primary w-full" disabled={loading}>{loading && <Loader2 className="animate-spin" size={16} />}{loading ? 'Please wait…' : mode === 'create' ? 'Create account' : 'Sign in'}</button>
             {admin && <button type="button" className="w-full text-sm font-semibold text-indigo-600" onClick={() => { setMode(mode === 'login' ? 'create' : 'login'); setErr({}); }}>{mode === 'login' ? 'Create a new admin account' : 'Back to sign in'}</button>}
           </div>
-
+{/* Removing a demo in login page
           {mode === 'login' && (
             <div className="mt-6 rounded-xl border border-dashed border-slate-300 p-3">
               <p className="mb-2 text-xs font-semibold text-slate-500">Demo accounts: click to fill (password {admin ? 'admin123' : 'password123'})</p>
@@ -107,7 +107,7 @@ export default function Login() {
                 {demo.map((u) => <button type="button" key={u.id} className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium hover:bg-slate-50" onClick={() => setF({ ...f, identifier: admin ? u.username : u.email, password: u.password })}>{ROLE_LABELS[u.role]}</button>)}
               </div>
             </div>
-          )}
+          )} */}
         </motion.form>
       </div>
 
