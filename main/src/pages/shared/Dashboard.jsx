@@ -4,13 +4,19 @@ import StatCard from '../../components/common/StatCard';
 import StatusBadge from '../../components/common/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
 import AdminDashboard from '../admin/AdminDashboard';
+import SecretaryDashboard from '../secretary/SecretaryDashboard';
 import { useApp } from '../../hooks/useApp';
 import { ROLE_LABELS, stageLabel } from '../../utils/workflow';
 import { fmtDate } from '../../utils/helpers';
 
 export default function Dashboard() {
   const { db, user } = useApp();
-  if (user.role === 'admin') return <AdminDashboard />;
+
+  if (user.role === 'admin')
+    return <AdminDashboard />;
+
+  if (user.role === 'secretary')
+    return <SecretaryDashboard />;
  
 
   const own = ['student', 'secretary'].includes(user.role);

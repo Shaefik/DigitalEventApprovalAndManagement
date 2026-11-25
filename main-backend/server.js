@@ -486,6 +486,40 @@ async function seedDatabaseIfEmpty() {
   console.log('✅ Auto-seeding complete! All users, clubs, rooms, and requests are now in MongoDB.');
 }
 
+//added this functions
+
+async function syncSecretary() {
+  const secretary = await User.findOneAndUpdate(
+    { regNo: '26MX332' },
+    {
+      $set: {
+        role: 'secretary',
+        designation: 'Student Secretary, MCA – I Year',
+        section: 'G2',
+      },
+    },
+    { returnDocument: 'after' }
+  );
+
+  if (!secretary) {
+    console.log('Secretary student record not found!');
+    return;
+  }
+
+  await User.updateOne(
+    { id: 'S001' },
+    {
+      $set: {
+        active: false,
+        email: 'retired-secretary@college.edu',
+        username: 'retired-secretary',
+      },
+    }
+  );
+
+  console.log('Secretary synced:', secretary.name);
+}
+
 async function syncStudentSections() {
   const students = buildSeed().users.filter(
     user => user.role === 'student'
@@ -537,7 +571,10 @@ mongoose.connect(process.env.MONGO_URI)
     await syncStudentSections();
 
     // Always sync faculty, even when students already exist
+    await syncSecretary();
+
     await seedFacultyUsers();
+    // await syncFacultyUsersPlaceholder();
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Backend Server running at http://localhost:${PORT}/api`));

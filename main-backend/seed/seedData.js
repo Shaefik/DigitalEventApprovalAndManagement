@@ -51,12 +51,12 @@ function buildSeed() {
     department: 'Administration',
   }),
 
-  mk('S001', 'Student Secretary', 'secretary', {
-    username: 'Natesh M',
-    email: '26mx332@psgtech.ac.in',
-    designation: 'Student Secretary',
-    department: 'MCA',
-  }),
+  // mk('S001', 'Student Secretary', 'secretary', {
+  //   username: 'Natesh M',
+  //   email: '26mx332@psgtech.ac.in',
+  //   designation: 'Student Secretary',
+  //   department: 'MCA',
+  // }),
 ];
   
 
