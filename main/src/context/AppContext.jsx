@@ -74,37 +74,28 @@ export function AppProvider({ children }) {
 
   //changing it for login - safeer
   // const login = async ({ identifier, password, admin, remember }) => {
-  const login = async ({ identifier, password, admin }) => {
+  const login = async ({ identifier, password }) => {
   try {
-    const id = identifier.trim().toLowerCase();
-
-    const response = admin
-      ? await authAPI.adminLogin({
-          username: id,
-          password
-        })
-      : await authAPI.login({
-          email: id,
-          password
-        });
+    const response = await authAPI.login({
+      identifier: identifier.trim(),
+      password
+    });
 
     const { token, user: loggedInUser } = response.data;
-// changing for login - safeer
-    // Save token based on Remember Me
-    // const storage = remember ? localStorage : sessionStorage;
 
-    // storage.setItem('cpems_token', token);
-    // storage.setItem(SESSION, loggedInUser.id);
+    sessionStorage.setItem('cpems_token', token);
 
-    // Store authentication separately for each tab
-  sessionStorage.setItem('cpems_token', token);
-  sessionStorage.setItem(SESSION, loggedInUser.id);
+    sessionStorage.setItem(
+      SESSION,
+      loggedInUser.id
+    );
 
-    // Make the authenticated user available to AppContext
     setDb((d) => ({
       ...d,
       users: [
-        ...d.users.filter((u) => u.id !== loggedInUser.id),
+        ...d.users.filter(
+          (u) => u.id !== loggedInUser.id
+        ),
         loggedInUser
       ]
     }));
@@ -119,11 +110,14 @@ export function AppProvider({ children }) {
   } catch (error) {
     return {
       ok: false,
-      error: error.response?.data?.message ||
-             'Unable to connect to the server.'
+      error:
+        error.response?.data?.message ||
+        'Unable to connect to the server.'
     };
   }
 };
+
+   
 
 // changed it for free login - safeer
 //   const logout = () => {
@@ -145,13 +139,7 @@ const logout = () => {
   setDb(freshDb());
 };
 
-  const createAdmin = async ({ name, username, password }) => {
-    await wait(500);
-    if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return { ok: false, error: 'Username already exists.' };
-    const nu = { id: uid('U'), name, username, email: `${username}@college.edu`, password, role: 'admin', department: 'Administration', designation: 'Administrator', regNo: '', active: true };
-    setDb((d) => ({ ...d, users: [...d.users, nu] }));
-    return { ok: true };
-  };
+
 
   // ---------- requests ----------
 const createRequest = async ({ type, kind, data, draft = false }) => {
@@ -273,6 +261,24 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
   toast('Demo data reset.');
 };
 
-  const value = { db, user, login, logout, createAdmin, createRequest, submitDraft, decideRequest, add, update, remove, saveUser, myNotes, markAllRead, setSettings, resetDemo, toast, toasts };
+  const value = {
+  db,
+  user,
+  login,
+  logout,
+  createRequest,
+  submitDraft,
+  decideRequest,
+  add,
+  update,
+  remove,
+  saveUser,
+  myNotes,
+  markAllRead,
+  setSettings,
+  resetDemo,
+  toast,
+  toasts
+};
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

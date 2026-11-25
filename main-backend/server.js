@@ -106,85 +106,135 @@ const authMiddleware = (req, res, next) => {
 const requireAuth = (req, res, next) =>
   req.user ? next() : res.status(401).json({ message: 'Please log in again.' });
 
+// Adding it for admin security - safeer 1
+
+const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        message: 'Please log in again.'
+      });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: 'Access denied. Insufficient permissions.'
+      });
+    }
+
+    next();
+  };
+};
+
+
 app.use('/api', authMiddleware);
 
 // =========================================================
 // 3. AUTH ROUTES
 // =========================================================
 
-// Student / Staff Login (by email or username)
+// Common Login - All users
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, username, password } = req.body;
-    let query;
-    if (email) {
-      query = { email: { $regex: new RegExp('^' + email.trim() + '$', 'i') } };
-    } else {
-      query = { username: { $regex: new RegExp('^' + username.trim() + '$', 'i') } };
+    const { identifier, password } = req.body;
+
+    if (
+      typeof identifier !== 'string' ||
+      typeof password !== 'string' ||
+      !identifier.trim() ||
+      !password
+    ) {
+      return res.status(400).json({
+        message: 'Email or username and password are required.'
+      });
     }
-    const user = await User.findOne(query);
+
+    const loginId = identifier.trim();
+
+    const user = await User.findOne({
+      $or: [
+        { email: loginId },
+        { username: loginId }
+      ]
+    }).collation({
+      locale: 'en',
+      strength: 2
+    });
 
     if (!user || user.password !== password) {
-      return res.status(401).json({ message: 'Invalid email or password' });
-    }
-    if (!user.active) {
-      return res.status(403).json({ message: 'Your account is deactivated' });
+      return res.status(401).json({
+        message: 'Invalid credentials.'
+      });
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role, name: user.name }, process.env.JWT_SECRET);
+    if (!user.active) {
+      return res.status(403).json({
+        message: 'Your account is deactivated.'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        name: user.name
+      },
+      process.env.JWT_SECRET
+    );
+
     const safeUser = user.toObject();
     delete safeUser.password;
 
-    res.json({ token, user: safeUser });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Admin Login (by username + password)
-app.post('/api/auth/admin/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const admin = await User.findOne({ username, role: 'admin' });
-    if (!admin || admin.password !== password) {
-      return res.status(401).json({ message: 'Invalid admin credentials' });
-    }
-    const token = jwt.sign({ id: admin.id, role: admin.role, name: admin.name }, process.env.JWT_SECRET);
-    const safeAdmin = admin.toObject();
-    delete safeAdmin.password;
-    res.json({ token, user: safeAdmin });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Admin Sign Up
-app.post('/api/auth/admin', async (req, res) => {
-  try {
-    const { name, username, password } = req.body;
-    const exists = await User.findOne({ username });
-    if (exists) return res.status(400).json({ message: 'Username already taken' });
-
-    const count = await User.countDocuments();
-    const newAdmin = await User.create({
-      id: `U00${count + 1}`,
-      name,
-      username,
-      email: `${username}@college.edu`,
-      password,
-      role: 'admin',
-      designation: 'Administrator',
-      department: 'Administration',
-      active: true
+    res.json({
+      token,
+      user: safeUser
     });
-    const token = jwt.sign({ id: newAdmin.id, role: newAdmin.role, name: newAdmin.name }, process.env.JWT_SECRET);
-    const safeAdmin = newAdmin.toObject();
-    delete safeAdmin.password;
-    res.status(201).json({ token, user: safeAdmin });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Login error:', err);
+
+    res.status(500).json({
+      message: 'Unable to log in.'
+    });
   }
 });
+
+
+// admin merging temp - safeer
+// // Admin Sign Up
+// // changing it for adming security - safeer 2
+// // app.post('/api/auth/admin', async (req, res) => {
+//   // Admin Sign Up - Existing administrators only
+// app.post(
+//   '/api/auth/admin',
+//   requireAuth,
+//   requireRole('admin'),
+//   async (req, res) => {
+//   try {
+//     const { name, username, password } = req.body;
+//     const exists = await User.findOne({ username });
+//     if (exists) return res.status(400).json({ message: 'Username already taken' });
+
+//     const count = await User.countDocuments();
+//     const newAdmin = await User.create({
+//       id: `U00${count + 1}`,
+//       name,
+//       username,
+//       email: `${username}@college.edu`,
+//       password,
+//       role: 'admin',
+//       designation: 'Administrator',
+//       department: 'Administration',
+//       active: true
+//     });
+//     const token = jwt.sign({ id: newAdmin.id, role: newAdmin.role, name: newAdmin.name }, process.env.JWT_SECRET);
+//     const safeAdmin = newAdmin.toObject();
+//     delete safeAdmin.password;
+//     res.status(201).json({ token, user: safeAdmin });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// });
 
 // Change password (current + new + confirm)
 app.put('/api/auth/change-password', requireAuth, async (req, res) => {
@@ -252,6 +302,35 @@ app.get('/api/requests', async (req, res) => {
 app.post('/api/requests',requireAuth, async (req, res) => {
   try {
     const payload = req.body;
+// adding it for admin security - safeer 3
+    // Validate request type
+if (!['od', 'booking'].includes(payload.type)) {
+  return res.status(400).json({
+    message: 'Invalid request type.'
+  });
+}
+
+// Only the Secretary can create hall bookings
+if (
+  payload.type === 'booking' &&
+  req.user.role !== 'secretary'
+) {
+  return res.status(403).json({
+    message: 'Only the Secretary can book event halls.'
+  });
+}
+
+// Only students and the Secretary can apply for OD
+if (
+  payload.type === 'od' &&
+  !['student', 'secretary'].includes(req.user.role)
+) {
+  return res.status(403).json({
+    message: 'You are not permitted to apply for OD.'
+  });
+}
+//----------------------------------------------------
+
     const isOd = payload.type === 'od';
     const prefix = isOd ? 'OD' : 'BK';
     const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -266,7 +345,9 @@ app.post('/api/requests',requireAuth, async (req, res) => {
        applicantId: req.user.id,          
       createdAt: new Date().toISOString(),
        status: payload.status === 'Draft' ? 'Draft' : 'Pending',   
-      approvals: payload.approvals || makeApprovals(flow),
+       // replacing it for admin security - safeer 4
+      // approvals: payload.approvals || makeApprovals(flow),
+      approvals: makeApprovals(flow),
       data: payload.data
     });
 
