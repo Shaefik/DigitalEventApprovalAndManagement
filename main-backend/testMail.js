@@ -1,12 +1,20 @@
-const { sendMail, buildEmail } = require('./mailService');
+require('dotenv').config();
 
-console.log('Starting email test...');
-const { html, text } = buildEmail({
-  heading: 'Test email',
-  intro: 'If you can read this, email notifications are working.',
-  rows: [['Status', 'Working']],
-});
+const { sendMail } = require('./mailService');
 
-sendMail({ to: 'esakirahul8@gmail.com', subject: 'Portal test email', html, text })
-  .then((r) => console.log('Result:', r))
-  .catch((e) => console.error('Error:', e));
+async function testEmail() {
+  const result = await sendMail({
+    to: 'experiment.idies@gmail.com',
+    subject: 'CPEMS - Email Service Test',
+    text: 'Congratulations! Your email service is working.',
+    html: `
+      <h2>CPEMS Email Test</h2>
+      <p>Your email service is working successfully.</p>
+      <p>College Permission and Event Management System</p>
+    `
+  });
+
+  console.log(result);
+}
+
+testEmail();

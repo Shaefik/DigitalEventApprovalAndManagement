@@ -9,6 +9,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const { sendMail, buildEmail } = require('./mailService');
 
 const { FLOWS, makeApprovals } = require('./workflow');
 const { buildSeed } = require('./seed/seedData');
@@ -298,6 +299,82 @@ app.get('/api/requests', async (req, res) => {
   }
 });
 
+// Send email to the next assigned approver
+async function notifyApproverByEmail(request) {
+  try {
+    if (request.status !== 'Pending') return;
+
+    const nextApproval = request.approvals.find(
+      (a) => a.status === 'Pending'
+    );
+
+    if (!nextApproval) return;
+
+    const applicant = await User.findOne({
+      id: request.applicantId
+    });
+
+    if (!applicant) return;
+
+    const filter = {
+      role: nextApproval.role,
+      active: true
+    };
+
+    // Send email only to the student's assigned tutor
+    if (nextApproval.role === 'tutor') {
+      if (!applicant.section) return;
+
+      filter.section = applicant.section;
+    }
+
+    const approvers = await User.find(filter);
+
+    const requestType = request.type === 'od'
+      ? 'OD Application'
+      : 'Event Hall Booking';
+
+    for (const approver of approvers) {
+      if (!approver.email) continue;
+
+      const email = buildEmail({
+        heading: 'New Request Awaiting Approval',
+
+        intro: `Dear ${approver.name}, a new request requires your approval.`,
+
+        rows: [
+          ['Request ID', request.id],
+          ['Request Type', requestType],
+          ['Applicant', applicant.name],
+          ['Register Number', applicant.regNo],
+          ['Section', applicant.section],
+          ['Status', request.status]
+        ],
+
+        ctaLabel: 'View Request',
+
+        ctaUrl: process.env.APP_URL ||
+                'http://localhost:5173',
+
+        tone: '#4f46e5'
+      });
+
+      await sendMail({
+        to: approver.email,
+        subject: `CPEMS - New Request ${request.id}`,
+        ...email
+      });
+    }
+
+  } catch (error) {
+    console.error(
+      'Approval email error:',
+      error.message
+    );
+  }
+}
+
+
 // POST /api/requests -> Create new OD or Room Booking request
 app.post('/api/requests',requireAuth, async (req, res) => {
   try {
@@ -351,14 +428,17 @@ if (
       data: payload.data
     });
 
-    if (newReq.status !== 'Draft') {                               // changed
+    if (newReq.status !== 'Draft') {
   await Notification.create({
     id: `N-${Date.now()}`,
-     role: newReq.approvals[0].role,
+    role: newReq.approvals[0].role,
     text: `New ${isOd ? 'OD application' : 'room booking'} ${newReq.id} received.`,
     at: new Date().toISOString(),
     read: false
   });
+
+  // Send email without delaying the API response
+  void notifyApproverByEmail(newReq);
 }
    
     res.status(201).json(newReq);
