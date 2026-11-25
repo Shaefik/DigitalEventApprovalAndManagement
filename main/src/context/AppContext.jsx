@@ -17,15 +17,37 @@ const freshDb = () => ({
   users: seedUsers, clubs: seedClubs, associations: seedAssociations, events: seedEvents,
   departments: seedDepartments, rooms: seedRooms, requests: seedRequests, notifications: seedNotifications, settings: seedSettings,
 });
-const loadDb = () => { try { return JSON.parse(localStorage.getItem(KEY)) || freshDb(); } catch { return freshDb(); } };
+// changing it to login - safeer
+// const loadDb = () => { try { return JSON.parse(localStorage.getItem(KEY)) || freshDb(); } catch { return freshDb(); } };
+
+const loadDb = () => {
+  try {
+    return JSON.parse(sessionStorage.getItem(KEY)) || freshDb();
+  } catch {
+    return freshDb();
+  }
+};
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function AppProvider({ children }) {
   const [db, setDb] = useState(loadDb);
-  const [sessionId, setSessionId] = useState(() => localStorage.getItem(SESSION) || sessionStorage.getItem(SESSION));
-  const [toasts, setToasts] = useState([]);
 
-  useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); }, [db]);
+  // changing it to make login easier - safeer
+  // const [sessionId, setSessionId] = useState(() => localStorage.getItem(SESSION) || sessionStorage.getItem(SESSION));
+  const [sessionId, setSessionId] = useState(
+  () => sessionStorage.getItem(SESSION)
+);
+
+
+  const [toasts, setToasts] = useState([]);
+//changed it for login freedom - safeer
+  // useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); }, [db]);
+
+  useEffect(() => {
+  sessionStorage.setItem(KEY, JSON.stringify(db));
+}, [db]);
+
   const user = useMemo(() => db.users.find((u) => u.id === sessionId && u.active) || null, [db.users, sessionId]);
 
   const toast = useCallback((message, type = 'success') => {
@@ -50,8 +72,9 @@ export function AppProvider({ children }) {
 
   const notifyFn = (list, target, text) => [{ id: uid('N'), ...target, text, at: new Date().toISOString(), read: false }, ...list];
 
-  
-  const login = async ({ identifier, password, admin, remember }) => {
+  //changing it for login - safeer
+  // const login = async ({ identifier, password, admin, remember }) => {
+  const login = async ({ identifier, password, admin }) => {
   try {
     const id = identifier.trim().toLowerCase();
 
@@ -66,12 +89,16 @@ export function AppProvider({ children }) {
         });
 
     const { token, user: loggedInUser } = response.data;
-
+// changing for login - safeer
     // Save token based on Remember Me
-    const storage = remember ? localStorage : sessionStorage;
+    // const storage = remember ? localStorage : sessionStorage;
 
-    storage.setItem('cpems_token', token);
-    storage.setItem(SESSION, loggedInUser.id);
+    // storage.setItem('cpems_token', token);
+    // storage.setItem(SESSION, loggedInUser.id);
+
+    // Store authentication separately for each tab
+  sessionStorage.setItem('cpems_token', token);
+  sessionStorage.setItem(SESSION, loggedInUser.id);
 
     // Make the authenticated user available to AppContext
     setDb((d) => ({
@@ -97,15 +124,27 @@ export function AppProvider({ children }) {
     };
   }
 };
-  const logout = () => {
-  localStorage.removeItem(SESSION);
-  sessionStorage.removeItem(SESSION);
 
-  localStorage.removeItem('cpems_token');
+// changed it for free login - safeer
+//   const logout = () => {
+//   localStorage.removeItem(SESSION);
+//   sessionStorage.removeItem(SESSION);
+
+//   localStorage.removeItem('cpems_token');
+//   sessionStorage.removeItem('cpems_token');
+
+//   setSessionId(null);
+// };
+
+const logout = () => {
+  sessionStorage.removeItem(SESSION);
   sessionStorage.removeItem('cpems_token');
+  sessionStorage.removeItem(KEY);
 
   setSessionId(null);
+  setDb(freshDb());
 };
+
   const createAdmin = async ({ name, username, password }) => {
     await wait(500);
     if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return { ok: false, error: 'Username already exists.' };
@@ -213,8 +252,10 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
       };
     });
     if (oldId && oldId === sessionId && u.id !== oldId) {
-      (localStorage.getItem(SESSION) ? localStorage : sessionStorage).setItem(SESSION, u.id);
-      setSessionId(u.id);
+      // changed it for login - safeer
+      // (localStorage.getItem(SESSION) ? localStorage : sessionStorage).setItem(SESSION, u.id);
+      // setSessionId(u.id);
+      sessionStorage.setItem(SESSION, u.id);
     }
     return { ok: true };
   };
@@ -223,7 +264,14 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
   const myNotes = useMemo(() => (user ? db.notifications.filter((n) => n.userId === user.id || n.role === user.role) : []), [db.notifications, user]);
   const markAllRead = () => setDb((d) => ({ ...d, notifications: d.notifications.map((n) => (n.userId === user.id || n.role === user.role ? { ...n, read: true } : n)) }));
   const setSettings = (patch) => setDb((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
-  const resetDemo = () => { localStorage.removeItem(KEY); setDb(freshDb()); toast('Demo data reset.'); };
+  // changed it for login - safeer
+  // const resetDemo = () => { localStorage.removeItem(KEY); setDb(freshDb()); toast('Demo data reset.'); };
+
+  const resetDemo = () => {
+  sessionStorage.removeItem(KEY);
+  setDb(freshDb());
+  toast('Demo data reset.');
+};
 
   const value = { db, user, login, logout, createAdmin, createRequest, submitDraft, decideRequest, add, update, remove, saveUser, myNotes, markAllRead, setSettings, resetDemo, toast, toasts };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

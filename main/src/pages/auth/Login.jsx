@@ -11,7 +11,16 @@ export default function Login() {
   const { user, login, createAdmin, db, toast } = useApp();
   const [tab, setTab] = useState('staff'); // staff | admin
   const [mode, setMode] = useState('login'); // login | create (admin only)
-  const [f, setF] = useState({ identifier: '', password: '', name: '', username: '', remember: true });
+  // replacing it for login and count from here - safeer 1
+  // const [f, setF] = useState({ identifier: '', password: '', name: '', username: '', remember: true });
+
+  const [f, setF] = useState({
+  identifier: '',
+  password: '',
+  name: '',
+  username: ''
+});
+
   const [show, setShow] = useState(false);
   const [err, setErr] = useState({});
   const [loading, setLoading] = useState(false);
@@ -45,7 +54,15 @@ export default function Login() {
       setMode('login'); setF({ ...f, identifier: f.username, password: '' });
       return;
     }
-    const r = await login({ identifier: f.identifier, password: f.password, admin, remember: f.remember });
+    // changing for login - safeer 2
+    // const r = await login({ identifier: f.identifier, password: f.password, admin, remember: f.remember });
+
+    const r = await login({
+  identifier: f.identifier,
+  password: f.password,
+  admin
+});
+
     setLoading(false);
     if (!r.ok) setErr({ form: r.error });
   };
@@ -91,7 +108,7 @@ export default function Login() {
             </div>
             {mode === 'login' && (
               <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2"><input type="checkbox" className="accent-indigo-600" checked={f.remember} onChange={(e) => setF({ ...f, remember: e.target.checked })} />Remember me</label>
+                {/* <label className="flex items-center gap-2"><input type="checkbox" className="accent-indigo-600" checked={f.remember} onChange={(e) => setF({ ...f, remember: e.target.checked })} />Remember me</label> */}
                 <button type="button" className="font-semibold text-indigo-600" onClick={() => setForgot(true)}>Forgot password?</button>
               </div>
             )}
