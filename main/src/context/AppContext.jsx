@@ -188,6 +188,36 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
     }
   };
  
+// Resubmit a rejected request
+const resubmitRequest = async (id, data) => {
+  try {
+    const res = await requestAPI.resubmit(id, data);
+
+    const saved = res.data;
+
+    setDb((d) => ({
+      ...d,
+      requests: d.requests.map((x) =>
+        x.id === id ? saved : x
+      ),
+    }));
+
+    toast(`${id} resubmitted successfully.`);
+
+    return saved;
+
+  } catch (error) {
+    toast(
+      error.response?.data?.message ||
+      'Could not resubmit the request.',
+      'error'
+    );
+
+    return null;
+  }
+};
+
+
   const decideRequest = async (id, decision, remarks) => {
     try {
       const res = await requestAPI.decide(id, { decision, remarks });
@@ -261,13 +291,14 @@ const createRequest = async ({ type, kind, data, draft = false }) => {
   toast('Demo data reset.');
 };
 
-  const value = {
+const value = {
   db,
   user,
   login,
   logout,
   createRequest,
   submitDraft,
+  resubmitRequest,
   decideRequest,
   add,
   update,

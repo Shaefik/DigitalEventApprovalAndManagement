@@ -11,14 +11,78 @@ import { fmtDate, fmtDateTime, userName } from '../../utils/helpers';
 const Row = ({ k, v }) => (<><dt className="text-slate-500">{k}</dt><dd className="col-span-2 font-medium">{v || '—'}</dd></>);
 
 export default function RequestDetails({ id, onClose }) {
-  const { db, user, decideRequest, submitDraft } = useApp();
+  const {
+  db,
+  user,
+  decideRequest,
+  submitDraft,
+  resubmitRequest
+} = useApp();
   const req = db.requests.find((r) => r.id === id);
   const [remarks, setRemarks] = useState('');
   const [err, setErr] = useState('');
+
+  const [resubmitting, setResubmitting] = useState(false);
+
+  const [editing, setEditing] = useState(false);
+
+const [editReason, setEditReason] = useState('');
+
+const [editRemarks, setEditRemarks] = useState('');
+
   if (!req) return null;
   const d = req.data;
   const applicant = db.users.find((u) => u.id === req.applicantId);
   const rejected = req.approvals.find((a) => a.status === 'Rejected');
+
+  const handleEdit = () => {
+  setEditReason(req.data?.reason || '');
+  setEditRemarks(req.data?.remarks || '');
+  setEditing(true);
+};
+
+const handleResubmit = async () => {
+  if (resubmitting) return;
+
+  const changes = {};
+
+  if (req.type === 'od') {
+    if (!editReason.trim()) {
+      window.alert('Please enter a valid reason.');
+      return;
+    }
+
+    changes.reason = editReason.trim();
+    changes.remarks = editRemarks.trim();
+
+  } else if (
+    Object.hasOwn(req.data || {}, 'remarks')
+  ) {
+    changes.remarks = editRemarks.trim();
+  }
+
+  const confirmed = window.confirm(
+    'Are you sure you want to resubmit this request?'
+  );
+
+  if (!confirmed) return;
+
+  setResubmitting(true);
+
+  try {
+    const saved = await resubmitRequest(
+      req.id,
+      changes
+    );
+
+    if (saved) {
+      setEditing(false);
+    }
+
+  } finally {
+    setResubmitting(false);
+  }
+};
 
   const act = (decision) => {
     if (decision === 'reject' && !remarks.trim()) return setErr('A rejection reason is required.');
@@ -74,6 +138,150 @@ export default function RequestDetails({ id, onClose }) {
         </div>
 
         {req.status === 'Draft' && req.applicantId === user.id && <button className="btn-primary" onClick={() => submitDraft(req.id)}>Submit request</button>}
+
+        {/* Edit and resubmit rejected request */}
+
+{req.status === 'Rejected' &&
+  req.applicantId === user.id && (
+
+  <div className="no-print rounded-xl border border-amber-200 bg-amber-50 p-4">
+
+    <h4 className="font-bold text-amber-800">
+      Edit & Resubmit Request
+    </h4>
+
+    <p className="mt-1 text-sm text-amber-700">
+      Correct your request details before
+      resubmitting to the rejecting authority.
+      Previous approvals will be preserved.
+    </p>
+
+    {!editing ? (
+
+      <button
+        type="button"
+        className="btn-primary mt-3"
+        onClick={handleEdit}
+      >
+        Edit & Resubmit
+      </button>
+
+    ) : (
+
+      <div className="mt-4 space-y-4">
+
+        {req.type === 'od' && (
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Reason for OD
+            </label>
+
+            <textarea
+              className="w-full rounded-lg border p-3"
+              rows={4}
+              maxLength={2000}
+              value={editReason}
+              disabled={resubmitting}
+              onChange={(e) =>
+                setEditReason(e.target.value)
+              }
+              placeholder="Enter corrected reason"
+            />
+          </div>
+
+        )}
+
+        {(req.type === 'od' ||
+          Object.hasOwn(req.data || {}, 'remarks')) && (
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Applicant Remarks
+            </label>
+
+            <textarea
+              className="w-full rounded-lg border p-3"
+              rows={3}
+              maxLength={2000}
+              value={editRemarks}
+              disabled={resubmitting}
+              onChange={(e) =>
+                setEditRemarks(e.target.value)
+              }
+              placeholder="Enter additional remarks"
+            />
+          </div>
+
+        )}
+
+        {req.type !== 'od' &&
+          !Object.hasOwn(req.data || {}, 'remarks') && (
+            <p className="text-sm text-amber-700">
+              Editing is not available for this
+              request yet. You can resubmit it
+              without changes.
+            </p>
+        )}
+
+        <div className="flex flex-wrap gap-3">
+
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleResubmit}
+            disabled={resubmitting}
+          >
+            {resubmitting
+              ? 'Resubmitting...'
+              : 'Save & Resubmit'}
+          </button>
+
+          <button
+            type="button"
+            className="rounded-lg border px-4 py-2"
+            disabled={resubmitting}
+            onClick={() => setEditing(false)}
+          >
+            Cancel
+          </button>
+
+        </div>
+
+      </div>
+
+    )}
+
+  </div>
+
+)}
+{req.status === 'Rejected' &&
+  req.applicantId === user.id && (
+    <div className="no-print rounded-xl border border-amber-200 bg-amber-50 p-4">
+
+      <h4 className="font-bold text-amber-800">
+        Resubmit Request
+      </h4>
+
+      <p className="mt-1 text-sm text-amber-700">
+        Your request was rejected. You can resubmit
+        it to the authority that rejected it.
+        Previous approvals will be preserved.
+      </p>
+
+      <button
+        type="button"
+        className="btn-primary mt-3"
+        onClick={handleResubmit}
+        disabled={resubmitting}
+      >
+        {resubmitting
+          ? 'Resubmitting...'
+          : 'Resubmit Request'}
+      </button>
+
+    </div>
+)}
 
         {canAct(req, user) && (
           <div className="no-print rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">

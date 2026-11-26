@@ -9,6 +9,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+
+
 const { sendMail, buildEmail } = require('./mailService');
 
 const { FLOWS, makeApprovals } = require('./workflow');
@@ -77,8 +79,29 @@ const Request = mongoose.model('Request', new mongoose.Schema({
     at: String,
     remarks: String
   }],
-  data: mongoose.Schema.Types.Mixed
+  data: mongoose.Schema.Types.Mixed,
+
+history: [{
+  action: {
+    type: String,
+    enum: ['Approved', 'Rejected', 'Resubmitted'],
+    required: true
+  },
+  role: String,
+  stage: String,
+  by: String,
+  byName: String,
+  at: String,
+  remarks: String,
+  changes: [{
+    field: String,
+    oldValue: mongoose.Schema.Types.Mixed,
+    newValue: mongoose.Schema.Types.Mixed
+  }]
+}]
 }));
+
+
 
 const Notification = mongoose.model('Notification', new mongoose.Schema({
   id: String,
@@ -299,6 +322,120 @@ app.get('/api/requests', async (req, res) => {
   }
 });
 
+// Send rejection email to the applicant
+async function notifyApplicantRejected(request, actor, remarks) {
+  try {
+    if (request.status !== 'Rejected') return;
+
+    const applicant = await User.findOne({
+      id: request.applicantId,
+      active: true
+    });
+
+    if (!applicant || !applicant.email) return;
+
+    const requestType = request.type === 'od'
+      ? 'OD Application'
+      : 'Event Hall Booking';
+
+    const rejectionReason =
+      remarks?.trim() || 'No reason provided.';
+
+    const email = buildEmail({
+      heading: 'Request Rejected',
+
+      intro: `Dear ${applicant.name},
+      your ${requestType} has been rejected.
+      Please review the reason below and make
+      the necessary corrections.`,
+
+      rows: [
+        ['Request ID', request.id],
+        ['Request Type', requestType],
+        ['Applicant', applicant.name],
+        ['Rejected By', actor.name],
+        ['Rejection Reason', rejectionReason],
+        ['Status', 'Rejected']
+      ],
+
+      ctaLabel: 'Review Your Request',
+
+      ctaUrl: process.env.APP_URL ||
+              'http://localhost:5173',
+
+      tone: '#dc2626'
+    });
+
+    await sendMail({
+      to: applicant.email,
+      subject: `CPEMS - Request Rejected ${request.id}`,
+      ...email
+    });
+
+  } catch (error) {
+    console.error(
+      'Rejection email error:',
+      error.message
+    );
+  }
+}
+
+
+// Send final approval email to the applicant
+async function notifyApplicantApproved(request) {
+  try {
+    if (request.status !== 'Approved') return;
+
+    const applicant = await User.findOne({
+      id: request.applicantId,
+      active: true
+    });
+
+    if (!applicant || !applicant.email) return;
+
+    const isOd = request.type === 'od';
+
+    const requestType = isOd
+      ? 'OD Application'
+      : 'Event Hall Booking';
+
+    const email = buildEmail({
+      heading: 'Request Successfully Approved',
+
+      intro: `Dear ${applicant.name}, congratulations!
+      Your ${requestType} has been approved by all
+      required authorities.`,
+
+      rows: [
+        ['Request ID', request.id],
+        ['Request Type', requestType],
+        ['Applicant', applicant.name],
+        ['Status', 'Approved']
+      ],
+
+      ctaLabel: 'View Approved Request',
+
+      ctaUrl: process.env.APP_URL ||
+              'http://localhost:5173',
+
+      tone: '#16a34a'
+    });
+
+    await sendMail({
+      to: applicant.email,
+      subject: `CPEMS - Request Approved ${request.id}`,
+      ...email
+    });
+
+  } catch (error) {
+    console.error(
+      'Final approval email error:',
+      error.message
+    );
+  }
+}
+
+
 // Send email to the next assigned approver
 async function notifyApproverByEmail(request) {
   try {
@@ -464,11 +601,208 @@ app.post('/api/requests/:id/submit', requireAuth, async (req, res) => {
       at: new Date().toISOString(),
       read: false
     });
+
+    // Send email when a saved draft is submitted
+    void notifyApproverByEmail(r);
+
     res.json(r);
+
+
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
+
+// Resubmit a rejected request
+app.post('/api/requests/:id/resubmit', requireAuth, async (req, res) => {
+  try {
+
+    // 1. Find the request
+    const r = await Request.findOne({
+      id: req.params.id
+    });
+
+    if (!r) {
+      return res.status(404).json({
+        message: 'Request not found.'
+      });
+    }
+
+    // 2. Verify request ownership
+    if (r.applicantId !== req.user.id) {
+      return res.status(403).json({
+        message: 'You can only resubmit your own requests.'
+      });
+    }
+
+    // 3. Verify request status
+    if (r.status !== 'Rejected') {
+      return res.status(400).json({
+        message: 'Only rejected requests can be resubmitted.'
+      });
+    }
+
+    // 4. Find the rejected approval stage
+    const rejectedIndex = r.approvals.findIndex(
+      (a) => a.status === 'Rejected'
+    );
+
+    if (rejectedIndex === -1) {
+      return res.status(400).json({
+        message: 'Rejected approval stage not found.'
+      });
+    }
+
+    const changeHistory = [];
+
+    // Validate and apply corrected request details
+const changes = req.body?.data;
+
+if (changes !== undefined) {
+
+  if (
+    changes === null ||
+    typeof changes !== 'object' ||
+    Array.isArray(changes)
+  ) {
+    return res.status(400).json({
+      message: 'Invalid request details.'
+    });
+  }
+
+  // Only allow approved fields to be edited
+  const editableFields = r.type === 'od'
+    ? ['reason', 'remarks']
+    : ['remarks'].filter(
+        (field) => Object.hasOwn(r.data || {}, field)
+      );
+
+  const updatedData = { ...r.data };
+
+  for (const field of Object.keys(changes)) {
+
+    // Reject unauthorized field changes
+    if (!editableFields.includes(field)) {
+      return res.status(400).json({
+        message: `You cannot edit ${field} during resubmission.`
+      });
+    }
+
+    // Validate the field value
+    if (typeof changes[field] !== 'string') {
+      return res.status(400).json({
+        message: `${field} must be text.`
+      });
+    }
+
+    const value = changes[field].trim();
+
+    if (value.length > 2000) {
+      return res.status(400).json({
+        message: `${field} is too long.`
+      });
+    }
+
+    if (field === 'reason' && !value) {
+      return res.status(400).json({
+        message: 'Reason cannot be empty.'
+      });
+    }
+
+    // Record only fields that were actually changed
+if (updatedData[field] !== value) {
+  changeHistory.push({
+    field: field,
+    oldValue: updatedData[field] ?? null,
+    newValue: value
+  });
+}
+
+updatedData[field] = value;
+  }
+
+  // Save the corrected details
+  r.data = updatedData;
+  r.markModified('data');
+}
+
+    const rejectedStage = r.approvals[rejectedIndex];
+
+// Preserve an existing rejection from before
+// the history feature was introduced
+const rejectionRecorded = r.history.some(
+  (entry) =>
+    entry.action === 'Rejected' &&
+    entry.stage === rejectedStage.role &&
+    entry.by === rejectedStage.by &&
+    entry.at === rejectedStage.at
+);
+
+if (!rejectionRecorded) {
+  r.history.push({
+    action: 'Rejected',
+    role: rejectedStage.role,
+    stage: rejectedStage.role,
+    by: rejectedStage.by,
+    byName: rejectedStage.byName,
+    at: rejectedStage.at,
+    remarks: rejectedStage.remarks
+  });
+}
+
+// Record the resubmission
+r.history.push({
+  action: 'Resubmitted',
+  role: req.user.role,
+  stage: rejectedStage.role,
+  by: req.user.id,
+  byName: req.user.name,
+  at: new Date().toISOString(),
+  remarks: changeHistory.length
+    ? 'Resubmitted with corrected details.'
+    : 'Resubmitted without changes.',
+  changes: changeHistory
+});
+
+// Restore the rejected approval stage
+rejectedStage.status = 'Pending';
+
+// Clear the previous decision from the active stage
+rejectedStage.by = undefined;
+rejectedStage.byName = undefined;
+rejectedStage.at = undefined;
+rejectedStage.remarks = '';
+
+// Restore the overall request status
+r.status = 'Pending';
+
+    // 7. Save the updated request
+    await r.save();
+
+    // 8. Create in-app notification
+    await Notification.create({
+      id: `N-${Date.now()}`,
+      role: r.approvals[rejectedIndex].role,
+      text: `${r.id} has been resubmitted for your approval.`,
+      at: new Date().toISOString(),
+      read: false
+    });
+
+    // 9. Notify the assigned approver by email
+    void notifyApproverByEmail(r);
+
+    // 10. Return updated request
+    res.json(r);
+
+  } catch (error) {
+    console.error('Resubmission error:', error.message);
+
+    res.status(500).json({
+      message: 'Unable to resubmit the request.'
+    });
+  }
+});
+
 app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
   try {
     const { decision, remarks = '' } = req.body;
@@ -507,6 +841,17 @@ app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
     r.approvals[i].at = new Date().toISOString();
     r.approvals[i].remarks = String(remarks).trim();
 
+    // Record faculty decision in activity history
+r.history.push({
+  action: r.approvals[i].status,
+  role: actor.role,
+  stage: r.approvals[i].role,
+  by: actor.id,
+  byName: actor.name,
+  at: r.approvals[i].at,
+  remarks: r.approvals[i].remarks
+});
+
     if (decision === 'reject') {
       r.status = 'Rejected';
     } else if (i + 1 < r.approvals.length) {
@@ -523,11 +868,37 @@ app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
       r.status = 'Approved';
     }
 
+    // await r.save();
+
+    // res.json(r);
+
     await r.save();
 
-    res.json(r);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
+// Send email to the next assigned approver
+if (decision === 'approve' && r.status === 'Pending') {
+  void notifyApproverByEmail(r);
+}
+
+// Send final approval email to the applicant
+else if (
+  decision === 'approve' &&
+  r.status === 'Approved'
+) {
+  void notifyApplicantApproved(r);
+}
+
+// Send rejection email to the applicant
+else if (
+  decision === 'reject' &&
+  r.status === 'Rejected'
+) {
+  void notifyApplicantRejected(r, actor, remarks);
+}
+
+res.json(r);
+
+      } catch (err) {
+        res.status(400).json({ message: err.message });
   }
 });
 

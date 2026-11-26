@@ -32,9 +32,15 @@ export const authAPI = {
 
 export const requestAPI = {
   list: (params) => http.get('/requests', { params }),
+
   create: (payload) => http.post('/requests', payload),
-  submit: (id) => http.post(`/requests/${id}/submit`),            // NEW: send a draft
-  decide: (id, payload) => http.post(`/requests/${id}/decision`, payload), // { decision, remarks }
+
+  submit: (id) => http.post(`/requests/${id}/submit`),
+
+  resubmit: (id, data) =>
+    http.post(`/requests/${id}/resubmit`, { data }),
+
+  decide: (id, payload) => http.post(`/requests/${id}/decision`, payload),
 };
  
 export const masterAPI = (resource) => ({ // users, clubs, associations, events, departments, rooms
