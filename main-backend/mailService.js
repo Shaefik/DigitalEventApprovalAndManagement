@@ -34,13 +34,21 @@ function buildEmail({ heading, intro, rows = [], ctaLabel, ctaUrl, tone = '#4f46
 }
 
 // Sends one email. NEVER throws, so a mail problem can't break an approval.
-async function sendMail({ to, subject, html, text }) {
+async function sendMail({
+  to,
+  subject,
+  html,
+  text,
+  sensitive = false
+}) {
   if (!to) return { sent: false };
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
     console.log(`📭 SMTP not configured. Email NOT sent -> ${to}: ${subject}`);
     return { sent: false };
   }
-  const override = process.env.MAIL_TEST_RECIPIENT; // testing: send everything to one inbox
+  const override = sensitive
+  ? undefined
+  : process.env.MAIL_TEST_RECIPIENT; // testing: send everything to one inbox
   try {
     await transporter.sendMail({
       from: process.env.MAIL_FROM || process.env.SMTP_USER,

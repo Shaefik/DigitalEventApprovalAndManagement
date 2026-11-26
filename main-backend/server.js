@@ -10,6 +10,9 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { rateLimit } = require('express-rate-limit');
 
 const { sendMail, buildEmail } = require('./mailService');
 
@@ -41,7 +44,27 @@ const User = mongoose.model('User', new mongoose.Schema({
   department: { type: String, default: 'CSE' },
   designation: { type: String, default: '' },
   password: { type: String, default: 'password123' },
-  active: { type: Boolean, default: true }
+ active: { type: Boolean, default: true },
+
+resetOtpHash: {
+  type: String,
+  select: false
+},
+
+resetOtpExpires: {
+  type: Date,
+  select: false
+},
+
+resetOtpAttempts: {
+  type: Number,
+  select: false
+},
+
+resetOtpSentAt: {
+  type: Date,
+  select: false
+}
 }));
 
 const Club = mongoose.model('Club', new mongoose.Schema({
@@ -150,7 +173,7 @@ const requireRole = (...allowedRoles) => {
   };
 };
 
-
+require('./passwordReset')(app, User);
 app.use('/api', authMiddleware);
 
 // =========================================================
@@ -185,7 +208,10 @@ app.post('/api/auth/login', async (req, res) => {
       strength: 2
     });
 
-    if (!user || user.password !== password) {
+    if (
+  !user ||
+  !(await bcrypt.compare(password, user.password))
+) {
       return res.status(401).json({
         message: 'Invalid credentials.'
       });
@@ -268,9 +294,15 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       return res.status(400).json({ message: 'All fields are required.' });
     }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
-    }
+    if (
+  typeof newPassword !== 'string' ||
+  newPassword.length < 8 ||
+  Buffer.byteLength(newPassword, 'utf8') > 72
+) {
+  return res.status(400).json({
+    message: 'Password must contain at least 8 characters and no more than 72 bytes.'
+  });
+}
     if (newPassword !== confirmPassword) {
       return res.status(400).json({ message: 'Passwords do not match.' });
     }
@@ -279,14 +311,22 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
   
-    if (user.password !== currentPassword) {
+    if (
+  !(await bcrypt.compare(
+    currentPassword,
+    user.password
+  ))
+) {
       return res.status(400).json({ message: 'Current password is incorrect.' });
     }
     if (newPassword === currentPassword) {
       return res.status(400).json({ message: 'New password must differ from the current one.' });
     }
 
-    user.password = newPassword;
+    user.password = await bcrypt.hash(
+  newPassword,
+  12
+);
     await user.save();
 
     res.json({ message: 'Password changed successfully.' });
@@ -927,20 +967,51 @@ Object.entries(resourceModels).forEach(([resource, { model, prefix }]) => {
   });
 
   // CREATE
-  app.post(`/api/${resource}`, async (req, res) => {
-    try {
-      const count = await model.countDocuments();
-      const newItem = await model.create({
-        id: req.body.id || `${prefix}-${count + 1 + Math.floor(Math.random() * 100)}`,
-        ...req.body
-      });
-      const out = newItem.toObject();
-      if (resource === 'users') delete out.password;
-      res.status(201).json(out);
-    } catch (err) {
-      res.status(400).json({ message: err.message });
+app.post(`/api/${resource}`, requireAuth, async (req, res) => {
+  try {
+    if (resource === 'users') {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({
+          message: 'Access denied.'
+        });
+      }
+
+      const password = req.body.password;
+
+      if (
+        typeof password !== 'string' ||
+        password.length < 8 ||
+        Buffer.byteLength(password, 'utf8') > 72
+      ) {
+        return res.status(400).json({
+          message: 'Enter a valid password of at least 8 characters.'
+        });
+      }
+
+      req.body.password = await bcrypt.hash(password, 12);
     }
-  });
+
+    const count = await model.countDocuments();
+
+    const newItem = await model.create({
+      id: req.body.id || `${prefix}-${count + 1 + Math.floor(Math.random() * 100)}`,
+      ...req.body
+    });
+
+    const out = newItem.toObject();
+
+    if (resource === 'users') {
+      delete out.password;
+    }
+
+    res.status(201).json(out);
+
+  } catch (err) {
+    res.status(400).json({
+      message: err.message
+    });
+  }
+});
 
   // UPDATE
   app.put(`/api/${resource}/:id`, async (req, res) => {
@@ -961,6 +1032,29 @@ Object.entries(resourceModels).forEach(([resource, { model, prefix }]) => {
         }
       }
 
+      if (resource === 'users') {
+  const allowedFields = ['name'];
+
+  if (req.user.role === 'admin') {
+    allowedFields.push(
+      'username',
+      'regNo',
+      'section',
+      'department',
+      'designation',
+      'role',
+      'active',
+      'email'
+    );
+  }
+
+  body = Object.fromEntries(
+    Object.entries(body).filter(
+      ([key]) => allowedFields.includes(key)
+    )
+  );
+}
+
       const updated = await model.findOneAndUpdate({ id: req.params.id }, body, { new: true });
       if (!updated) return res.status(404).json({ message: 'Not found' });
 
@@ -972,15 +1066,29 @@ Object.entries(resourceModels).forEach(([resource, { model, prefix }]) => {
     }
   });
 
-  // DELETE
-  app.delete(`/api/${resource}/:id`, async (req, res) => {
-    try {
-      await model.findOneAndDelete({ id: req.params.id });
-      res.json({ message: 'Deleted', id: req.params.id });
-    } catch (err) {
-      res.status(500).json({ message: err.message });
+// DELETE
+app.delete(`/api/${resource}/:id`, requireAuth, async (req, res) => {
+  try {
+    if (
+      resource === 'users' &&
+      req.user?.role !== 'admin'
+    ) {
+      return res.status(403).json({
+        message: 'Access denied.'
+      });
     }
-  });
+
+    await model.findOneAndDelete({ id: req.params.id });
+
+    res.json({
+      message: 'Deleted',
+      id: req.params.id
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 });
 
 // =========================================================
@@ -1071,24 +1179,71 @@ async function syncStudentSections() {
   console.log('✅ Student sections synced successfully!');
 }
 
+//temp
+function isHashedPassword(password) {
+  return typeof password === 'string' &&
+    /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(password);
+}
+
+async function migratePasswords() {
+  console.log('Checking password security...');
+
+  let count = 0;
+
+  for await (const user of User.find().cursor()) {
+    if (!isHashedPassword(user.password)) {
+      const original = user.password;
+
+      const hashed = await bcrypt.hash(
+        original,
+        12
+      );
+
+      const result = await User.updateOne(
+        {
+          _id: user._id,
+          password: original
+        },
+        {
+          $set: { password: hashed }
+        }
+      );
+
+      count += result.modifiedCount;
+    }
+  }
+
+  console.log(`${count} passwords secured.`);
+}
+
 //adding seperate function to chech faculty records
 
 async function seedFacultyUsers() {
-  console.log('🌱 Checking faculty records...');
+  console.log('Checking faculty records...');
 
   for (const faculty of facultyList) {
+    const { password, ...details } = faculty;
+
     await User.findOneAndUpdate(
       { id: faculty.id },
-      { $set: faculty },
+      {
+        $set: details,
+        $setOnInsert: {
+          password: await bcrypt.hash(
+            password || 'password123',
+            12
+          )
+        }
+      },
       {
         upsert: true,
         returnDocument: 'after',
-        runValidators: true,
+        runValidators: true
       }
     );
   }
 
-  console.log('✅ Faculty records synced successfully!');
+  console.log('Faculty records synced successfully!');
 }
 
 // =========================================================
@@ -1107,6 +1262,8 @@ mongoose.connect(process.env.MONGO_URI)
 
     await seedFacultyUsers();
     // await syncFacultyUsersPlaceholder();
+
+    await migratePasswords();
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Backend Server running at http://localhost:${PORT}/api`));

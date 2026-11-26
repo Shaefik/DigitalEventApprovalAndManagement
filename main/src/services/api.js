@@ -28,6 +28,12 @@ export const authAPI = {
 
   changePassword: (payload) =>
     http.put('/auth/change-password', payload),
+
+  forgotPassword: (email) =>
+    http.post('/auth/forgot-password', { email }),
+
+  resetPassword: (payload) =>
+    http.post('/auth/reset-password', payload),
 };
 
 export const requestAPI = {

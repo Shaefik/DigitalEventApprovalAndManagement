@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 
 import {
   Eye,
@@ -191,7 +191,17 @@ export default function Login() {
 
             </div>
 
+            <div className="flex justify-end">
+  <Link
+    to="/forgot-password"
+    className="text-sm font-semibold text-indigo-600 hover:underline"
+  >
+    Forgot Password?
+  </Link>
+</div>
+
             {err.form && (
+
               <p className="rounded-lg bg-red-50
                             p-2 text-sm text-red-700">
                 {err.form}

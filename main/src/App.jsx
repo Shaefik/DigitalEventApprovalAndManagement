@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Login from './pages/auth/Login';
+import ResetPassword from './pages/auth/ResetPassword';
 import Layout from './components/layout/Layout';
 import Toaster from './components/common/Toaster';
 import { PageSwitch, Protected } from './routes';
@@ -11,6 +12,10 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route
+  path="/forgot-password"
+  element={<ResetPassword />}
+/>
         <Route path="/:role" element={<Protected><Layout /></Protected>}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path=":page" element={<PageSwitch />} />
