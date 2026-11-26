@@ -1,4 +1,21 @@
-﻿node_modules/
-**/node_modules/
+﻿# Dependencies
+node_modules/
+
+# Environment variables
 .env
 .env.*
+!.env.example
+
+# Build files
+dist/
+build/
+
+# Logs
+*.log
+
+# Archives
+*.zip
+
+# Operating system files
+.DS_Store
+Thumbs.db
