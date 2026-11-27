@@ -1,6 +1,6 @@
 
 const FLOWS = {
-  od: ['faculty-advisor', 'tutor'],
+  od: ['faculty-advisor', 'tutor','hod'],
   association: ['faculty-advisor', 'hod', 'dean-su', 'dean-admin', 'principal'],
   club: ['faculty-advisor', 'dean-su', 'dean-admin', 'principal'],
 };

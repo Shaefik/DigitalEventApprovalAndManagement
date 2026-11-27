@@ -9,7 +9,7 @@ export const NAV = {
   secretary: [...common, { page: 'od-new', label: 'Apply for OD', icon: 'FilePlus2' }, { page: 'od-list', label: 'OD Applications', icon: 'ListChecks' }, { page: 'bk-new', label: 'New Room Booking', icon: 'DoorOpen' }, { page: 'bk-list', label: 'Booking Tracking', icon: 'CalendarClock' }, settings],
   tutor: [...common, od, settings],
   'faculty-advisor': [...common, od, bk, settings],
-  hod: [...common, bk, settings],
+  hod: [...common,od, bk, settings],
   'dean-su': [...common, bk, settings],
   'dean-admin': [...common, bk, settings],
   principal: [...common, bk, settings],

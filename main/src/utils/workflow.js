@@ -8,8 +8,7 @@ export const ROLE_LABELS = {
 // Association: FA -> HOD -> Dean SU -> Dean Admin -> Principal
 // Club:        FA -> Dean SU -> Dean Admin -> Principal          (HOD skipped)
 export const FLOWS = {
-  od: ['faculty-advisor', 'tutor'],
-  association: ['faculty-advisor', 'hod', 'dean-su', 'dean-admin', 'principal'],
+od: ['faculty-advisor', 'tutor', 'hod'],  association: ['faculty-advisor', 'hod', 'dean-su', 'dean-admin', 'principal'],
   club: ['faculty-advisor', 'dean-su', 'dean-admin', 'principal'],
 };
 

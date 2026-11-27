@@ -1301,6 +1301,39 @@ async function seedFacultyUsers() {
 
   console.log('Faculty records synced successfully!');
 }
+// Migrate unfinished OD requests to include HOD approval
+async function migrateODWorkflow() {
+  const result = await Request.updateMany(
+    {
+      type: 'od',
+      status: {
+        $in: ['Draft', 'Pending', 'Rejected']
+      },
+      'approvals.role': {
+        $ne: 'hod'
+      }
+    },
+    {
+      $push: {
+        approvals: {
+          role: 'hod',
+          status: 'Waiting',
+          by: null,
+          byName: null,
+          at: null,
+          remarks: ''
+        }
+      }
+    },
+    {
+      runValidators: true
+    }
+  );
+
+  console.log(
+    `OD workflow migration: ${result.modifiedCount} requests updated.`
+  );
+}
 
 // =========================================================
 // 8. CONNECT TO MONGODB & START SERVER
@@ -1322,6 +1355,7 @@ mongoose.connect(process.env.MONGO_URI)
 
     await seedFacultyUsers();
     // await syncFacultyUsersPlaceholder();
+    await migrateODWorkflow();
 
     await migratePasswords();
 
