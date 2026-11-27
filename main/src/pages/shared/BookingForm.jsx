@@ -11,11 +11,13 @@ export default function BookingForm() {
   const nav = useNavigate();
   const [f, setF] = useState(blank);
   const [err, setErr] = useState({});
+  const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const room = db.rooms.find((r) => r.name === f.room);
 
-  const send = (draft) => (e) => {
+  const send = (draft) => async (e) => {
     e.preventDefault();
+    if (saving) return;
     const x = {};
     if (!f.groupName) x.groupName = f.kind === 'club' ? 'Select a club.' : 'Enter the association name.';
     if (!f.eventName.trim()) x.eventName = 'Event name is required.';
@@ -31,9 +33,33 @@ export default function BookingForm() {
     }
     setErr(x);
     if (Object.keys(x).length) return;
+    
+    // duplicate hall booking prevention
+    
     const { kind, ...rest } = f;
-    createRequest({ type: 'booking', kind, draft, data: { ...rest, participants: Number(f.participants), activityType: kind === 'club' ? 'Club-Based' : 'Association-Based' } });
+
+setSaving(true);
+
+try {
+  const saved = await createRequest({
+    type: 'booking',
+    kind,
+    draft,
+    data: {
+      ...rest,
+      participants: Number(f.participants),
+      activityType: kind === 'club'
+        ? 'Club-Based'
+        : 'Association-Based'
+    }
+  });
+
+  if (saved) {
     nav(`/${user.role}/bk-list`);
+  }
+} finally {
+  setSaving(false);
+}
   };
 
   return (
@@ -62,10 +88,33 @@ export default function BookingForm() {
       <Textarea label="Additional requirements" rows={2} value={f.additional} onChange={set('additional')} />
       <Input label="Contact number" required value={f.contact} onChange={set('contact')} error={err.contact} />
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" className="btn-ghost" onClick={() => nav(-1)}>Cancel</button>
-        <button type="button" className="btn-ghost" onClick={send(true)}>Save as draft</button>
-        <button className="btn-primary" onClick={send(false)}>Submit request</button>
-      </div>
+  <button
+    type="button"
+    className="btn-ghost"
+    disabled={saving}
+    onClick={() => nav(-1)}
+  >
+    Cancel
+  </button>
+
+  <button
+    type="button"
+    className="btn-ghost"
+    disabled={saving}
+    onClick={send(true)}
+  >
+    Save as draft
+  </button>
+
+  <button
+    type="button"
+    className="btn-primary"
+    disabled={saving}
+    onClick={send(false)}
+  >
+    {saving ? 'Submitting...' : 'Submit request'}
+  </button>
+</div>
     </form>
   );
 }

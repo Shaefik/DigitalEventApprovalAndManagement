@@ -16,6 +16,13 @@ const { rateLimit } = require('express-rate-limit');
 
 const { sendMail, buildEmail } = require('./mailService');
 
+const {
+  saveWithoutConflict,
+  RequestLock
+} = require('./requestConflict');
+
+
+
 const { FLOWS, makeApprovals } = require('./workflow');
 const { buildSeed } = require('./seed/seedData');
 
@@ -136,7 +143,28 @@ history: [{
 }]
 }));
 
+// Scheduling conflict indexes
+Request.schema.index(
+  {
+    type: 1,
+    status: 1,
+    'data.date': 1,
+    'data.room': 1,
+    'data.start': 1,
+    'data.end': 1
+  },
+  { collation: { locale: 'en', strength: 2 } }
+);
 
+Request.schema.index(
+  {
+    type: 1,
+    applicantId: 1,
+    status: 1,
+    'data.date': 1
+  },
+  { collation: { locale: 'en', strength: 2 } }
+);
 
 const Notification = mongoose.model('Notification', new mongoose.Schema({
   id: String,
@@ -607,18 +635,25 @@ if (
     const flow = isOd ? FLOWS.od : FLOWS[payload.kind];
     if (!flow) return res.status(400).json({ message: 'Invalid request type or kind.' });
 
-    const newReq = await Request.create({
-      id: payload.id || `${prefix}-${randomNum}`,
-      type: payload.type,
-      kind: payload.kind,
-       applicantId: req.user.id,          
-      createdAt: new Date().toISOString(),
-       status: payload.status === 'Draft' ? 'Draft' : 'Pending',   
-       // replacing it for admin security - safeer 4
-      // approvals: payload.approvals || makeApprovals(flow),
-      approvals: makeApprovals(flow),
-      data: payload.data
-    });
+
+    // new request with conflict protection
+    const newReq = new Request({
+  id: payload.id || `${prefix}-${randomNum}`,
+  type: payload.type,
+  kind: payload.kind,
+  applicantId: req.user.id,
+  createdAt: new Date().toISOString(),
+  status: payload.status === 'Draft' ? 'Draft' : 'Pending',
+  approvals: makeApprovals(flow),
+  data: payload.data
+});
+
+if (newReq.status === 'Draft') {
+  await newReq.save();
+} else {
+  await saveWithoutConflict(Request, Room, newReq);
+}
+//
 
     if (newReq.status !== 'Draft') {
   await Notification.create({
@@ -634,9 +669,11 @@ if (
 }
    
     res.status(201).json(newReq);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
-  }
+} catch (err) {
+  res.status(err.statusCode || 400).json({
+    message: err.message
+  });
+}
 });
 
 // POST /api/requests/:id/submit -> send a saved Draft for approval
@@ -646,9 +683,10 @@ app.post('/api/requests/:id/submit', requireAuth, async (req, res) => {
     if (!r) return res.status(404).json({ message: 'Request not found' });
     if (r.applicantId !== req.user.id) return res.status(403).json({ message: 'Not your request.' });
     if (r.status !== 'Draft') return res.status(400).json({ message: 'Only drafts can be submitted.' });
-
+// conflict handling
     r.status = 'Pending';
-    await r.save();
+await saveWithoutConflict(Request, Room, r);
+
     await Notification.create({
       id: `N-${Date.now()}`,
       role: r.approvals[0].role,
@@ -662,10 +700,11 @@ app.post('/api/requests/:id/submit', requireAuth, async (req, res) => {
 
     res.json(r);
 
-
-  } catch (err) {
-    res.status(400).json({ message: err.message });
-  }
+} catch (err) {
+  res.status(err.statusCode || 400).json({
+    message: err.message
+  });
+}
 });
 
 // Resubmit a rejected request
@@ -831,8 +870,8 @@ rejectedStage.remarks = '';
 // Restore the overall request status
 r.status = 'Pending';
 
-    // 7. Save the updated request
-    await r.save();
+    // 7. Save only if no scheduling conflict exists
+await saveWithoutConflict(Request, Room, r);
 
     // 8. Create in-app notification
     await Notification.create({
@@ -850,12 +889,14 @@ r.status = 'Pending';
     res.json(r);
 
   } catch (error) {
-    console.error('Resubmission error:', error.message);
+  console.error('Resubmission error:', error.message);
 
-    res.status(500).json({
-      message: 'Unable to resubmit the request.'
-    });
-  }
+  res.status(error.statusCode || 500).json({
+    message: error.statusCode
+      ? error.message
+      : 'Unable to resubmit the request.'
+  });
+}
 });
 
 app.post('/api/requests/:id/decision', requireAuth, async (req, res) => {
@@ -1269,6 +1310,8 @@ mongoose.connect(process.env.MONGO_URI)
     console.log('✅ Connected to MongoDB!');
 
     await User.createIndexes();
+    await Request.createIndexes();
+    await RequestLock.init();
 
     await seedDatabaseIfEmpty();
     // Student Section test after added
