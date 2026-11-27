@@ -1,13 +1,6 @@
 // mailService.js : one place for sending emails
 require('dotenv').config();
-const nodemailer = require('nodemailer');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-});
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -34,6 +27,7 @@ function buildEmail({ heading, intro, rows = [], ctaLabel, ctaUrl, tone = '#4f46
 }
 
 // Sends one email. NEVER throws, so a mail problem can't break an approval.
+
 async function sendMail({
   to,
   subject,
@@ -42,27 +36,69 @@ async function sendMail({
   sensitive = false
 }) {
   if (!to) return { sent: false };
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-    console.log(`📭 SMTP not configured. Email NOT sent -> ${to}: ${subject}`);
+
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.BREVO_SENDER_EMAIL;
+
+  if (!apiKey || !senderEmail) {
+    console.error('Brevo email service not configured');
     return { sent: false };
   }
+
   const override = sensitive
-  ? undefined
-  : process.env.MAIL_TEST_RECIPIENT; // testing: send everything to one inbox
+    ? undefined
+    : process.env.MAIL_TEST_RECIPIENT;
+
   try {
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM || process.env.SMTP_USER,
-      to: override || to,
-      subject: override ? `${subject} [for ${to}]` : subject,
-      html,
-      text,
-    });
-    console.log(`📧 Email sent to ${override || to}: ${subject}`);
+    const response = await fetch(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        method: 'POST',
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: {
+            name: process.env.BREVO_SENDER_NAME
+              || 'PSG Permission Portal',
+            email: senderEmail
+          },
+          to: [
+            { email: override || to }
+          ],
+          subject: override
+            ? `${subject} [for ${to}]`
+            : subject,
+          htmlContent: html,
+          textContent: text
+        }),
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+
+      console.error(
+        'Brevo email failed:',
+        response.status,
+        error.code || 'Unknown error'
+      );
+
+      return { sent: false };
+    }
+
+    console.log('Email accepted by Brevo');
+
     return { sent: true };
-  } catch (e) {
-    console.error(`❌ Email failed (${to}): ${e.message}`);
+
+  } catch (error) {
+    console.error('Email failed:', error.message);
     return { sent: false };
   }
 }
+
 
 module.exports = { sendMail, buildEmail };
