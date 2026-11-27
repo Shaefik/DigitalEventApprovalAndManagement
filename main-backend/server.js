@@ -67,6 +67,18 @@ resetOtpSentAt: {
 }
 }));
 
+// Login performance indexes
+User.schema.index(
+  { email: 1 },
+  { collation: { locale: 'en', strength: 2 } }
+);
+
+User.schema.index(
+  { username: 1 },
+  { collation: { locale: 'en', strength: 2 } }
+);
+
+
 const Club = mongoose.model('Club', new mongoose.Schema({
   id: String, name: String, active: { type: Boolean, default: true }
 }));
@@ -355,7 +367,10 @@ app.get('/api/requests', async (req, res) => {
       }
     }
     
-    const requests = await Request.find(filter).sort({ createdAt: -1 });
+    const requests = await Request.find(filter)
+  .sort({ createdAt: -1 })
+  .lean();
+
     res.json(requests);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -960,7 +975,7 @@ Object.entries(resourceModels).forEach(([resource, { model, prefix }]) => {
   app.get(`/api/${resource}`, async (req, res) => {
     try {
       const query = resource === 'users' ? model.find().select('-password') : model.find();
-      res.json(await query);
+      res.json(await query.lean());
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -1252,6 +1267,8 @@ async function seedFacultyUsers() {
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ Connected to MongoDB!');
+
+    await User.createIndexes();
 
     await seedDatabaseIfEmpty();
     // Student Section test after added
