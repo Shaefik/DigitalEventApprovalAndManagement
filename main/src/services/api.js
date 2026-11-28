@@ -56,3 +56,13 @@ export const masterAPI = (resource) => ({ // users, clubs, associations, events,
   remove: (id) => http.delete(`/${resource}/${id}`),
 });
 export const notificationAPI = { list: () => http.get('/notifications'), markRead: () => http.post('/notifications/read') };
+export const uploadAPI = {
+  proof: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post('/upload/proof', fd);
+  },
+};
+
+// Turns "/uploads/abc.png" into "http://localhost:5000/uploads/abc.png"
+export const fileUrl = (p) => (p ? `${(http.defaults.baseURL || '').replace(/\/api\/?$/, '')}${p}` : '');

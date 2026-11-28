@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Printer, Award } from 'lucide-react';
+import { Printer, Award, ExternalLink } from 'lucide-react';
+import { fileUrl } from '../../services/api';
 import Modal from '../../components/common/Modal';
 import StatusBadge from '../../components/common/StatusBadge';
 import ApprovalTimeline from '../../components/approval/ApprovalTimeline';
@@ -9,6 +10,18 @@ import { canAct, ROLE_LABELS, stageLabel } from '../../utils/workflow';
 import { fmtDate, fmtDateTime, userName } from '../../utils/helpers';
 
 const Row = ({ k, v }) => (<><dt className="text-slate-500">{k}</dt><dd className="col-span-2 font-medium">{v || '—'}</dd></>);
+
+const ProofView = ({ d }) => {
+  const link = /^https?:\/\//i.test(d.proofLink || '') ? d.proofLink : null;
+  const file = d.proofFile ? fileUrl(d.proofFile) : null;
+  if (!link && !file) return <span className="font-normal text-slate-400">No proof attached</span>;
+  return (
+    <div className="space-y-2">
+      {link && <a href={link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 break-all text-indigo-600 underline"><ExternalLink size={14} />{link}</a>}
+      {file && <a href={file} target="_blank" rel="noopener noreferrer"><img src={file} alt="Proof screenshot" className="max-h-56 rounded-lg border border-slate-200" /></a>}
+    </div>
+  );
+};
 
 export default function RequestDetails({ id, onClose }) {
   const {
@@ -119,6 +132,7 @@ const handleResubmit = async () => {
           {req.type === 'od' ? (<>
             <Row k="Event date" v={fmtDate(d.date)} /><Row k="Reason" v={d.reason} /><Row k="Subjects missed" v={d.subjects} />
             <Row k="Attendance" v={`${d.attendance}%`} /><Row k="Remarks" v={d.remarks} />
+            <Row k="Proof" v={<ProofView d={d} />} />
           </>) : (<>
             <Row k="Activity type" v={d.activityType} /><Row k={req.kind === 'club' ? 'Club' : 'Association'} v={d.groupName} />
             <Row k="Description" v={d.description} /><Row k="Date & time" v={`${fmtDate(d.date)}, ${d.start} – ${d.end}`} />

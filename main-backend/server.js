@@ -9,7 +9,9 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { rateLimit } = require('express-rate-limit');
@@ -215,6 +217,37 @@ const requireRole = (...allowedRoles) => {
 
 require('./passwordReset')(app, User);
 app.use('/api', authMiddleware);
+// =========================================================
+// PROOF UPLOAD (OD screenshots) - saved in the "uploads" folder
+// =========================================================
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (req, file, cb) =>
+      cb(null, `${Date.now()}-${require('crypto').randomBytes(6).toString('hex')}${IMAGE_TYPES[file.mimetype]}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) =>
+    IMAGE_TYPES[file.mimetype] ? cb(null, true) : cb(new Error('Only JPG, PNG or WEBP images are allowed.')),
+});
+
+// Files are served from /uploads/<name>
+app.use('/uploads', express.static(UPLOAD_DIR, { setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff') }));
+
+app.post('/api/upload/proof', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE' ? 'Image is too large. The maximum size is 5 MB.' : err.message;
+      return res.status(400).json({ message });
+    }
+    if (!req.file) return res.status(400).json({ message: 'Please choose an image.' });
+    res.json({ url: `/uploads/${req.file.filename}`, name: req.file.originalname });
+  });
+});
 
 // =========================================================
 // 3. AUTH ROUTES
@@ -629,6 +662,14 @@ if (
 //----------------------------------------------------
 
     const isOd = payload.type === 'od';
+        if (isOd) {
+      const d = payload.data || {};
+      const okLink = /^https?:\/\/\S+$/i.test(d.proofLink || '');
+      const okFile = typeof d.proofFile === 'string' && d.proofFile.startsWith('/uploads/');
+      if (!okLink && !okFile) {
+        return res.status(400).json({ message: 'Please attach proof: a link or a screenshot.' });
+      }
+    }
     const prefix = isOd ? 'OD' : 'BK';
     const randomNum = Math.floor(1000 + Math.random() * 9000);
 
